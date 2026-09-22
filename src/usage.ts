@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { configDir } from "./config.js";
 import { priceForModel } from "./models.js";
 import { formatTokenCount, formatUsd } from "./tokens.js";
 
@@ -32,7 +32,7 @@ export function createUsageLedger(options?: {
   file?: string;
 }): UsageLedger {
   const persist = options?.persist ?? true;
-  const file = options?.file ?? path.join(homedir(), ".killami", "usage.json");
+  const file = options?.file ?? path.join(configDir(), "usage.json");
   let lifetime = persist ? loadLifetime(file) : empty();
   let session = empty();
   let turn = empty();

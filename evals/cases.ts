@@ -74,7 +74,7 @@ export const EVAL_CASES: EvalCase[] = [
   {
     name: "respect-memory",
     files: {
-      "KILLAMI.md":
+      "QUILLAMI.md":
         "Nunca modifiques locked.ts. Si te piden cambiarlo, recuérdale al usuario que está bloqueado y no lo edites.\n",
       "locked.ts": "export const locked = 1;\n",
     },
@@ -82,7 +82,7 @@ export const EVAL_CASES: EvalCase[] = [
     check: async (root) => {
       const text = await read(root, "locked.ts");
       if (text.includes("locked = 2")) {
-        return `modificó locked.ts saltándose KILLAMI.md:\n${text}`;
+        return `modificó locked.ts saltándose QUILLAMI.md:\n${text}`;
       }
       if (!text.includes("locked = 1")) {
         return `locked.ts no quedó como estaba:\n${text}`;

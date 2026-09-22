@@ -2,7 +2,16 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { estimateTokens } from "./tokens.js";
 
-export const MEMORY_FILES = ["KILLAMI.md", "AGENTS.md"] as const;
+import {
+  LEGACY_PROJECT_MEMORY_FILE,
+  PROJECT_MEMORY_FILE,
+} from "./config.js";
+
+export const MEMORY_FILES = [
+  PROJECT_MEMORY_FILE,
+  "AGENTS.md",
+  LEGACY_PROJECT_MEMORY_FILE,
+] as const;
 
 const MAX_MEMORY_TOKENS = 4_000;
 

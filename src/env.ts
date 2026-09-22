@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { configDir, legacyConfigDir } from "./config.js";
+
+export function userEnvPath(): string {
+  return path.join(configDir(), ".env");
+}
 
 function loadEnvFile(envPath: string): void {
   if (!existsSync(envPath)) return;
@@ -20,5 +24,6 @@ function loadEnvFile(envPath: string): void {
 
 export function loadEnv(): void {
   loadEnvFile(path.resolve(process.cwd(), ".env"));
-  loadEnvFile(path.join(homedir(), ".killami", ".env"));
+  loadEnvFile(path.join(configDir(), ".env"));
+  loadEnvFile(path.join(legacyConfigDir(), ".env"));
 }

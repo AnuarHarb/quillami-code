@@ -23,11 +23,13 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const chosen =
-    resolveModel(process.env.KILLAMI_EVAL_MODEL) ?? resolveModel("haiku");
-  const model = chosen?.id ?? "claude-haiku-4-5";
+  const model =
+    resolveModel(process.env.QUILLAMI_EVAL_MODEL) ??
+    resolveModel(process.env.KILLAMI_EVAL_MODEL) ??
+    resolveModel("haiku") ??
+    resolveModel("claude-haiku-4-5")!;
 
-  console.log(`evals · modelo ${model}\n`);
+  console.log(`evals · modelo ${model.id}\n`);
 
   let failed = 0;
 

@@ -35,4 +35,5 @@ jobs:
       - run: npm run eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          QUILLAMI_EVAL_MODEL: ${{ vars.QUILLAMI_EVAL_MODEL }}
           KILLAMI_EVAL_MODEL: ${{ vars.KILLAMI_EVAL_MODEL }}

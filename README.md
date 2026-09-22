@@ -1,8 +1,8 @@
-# Killami Code
+# Quillami Code
 
 Un agente de código que corre en tu terminal. Nace en el **Caribe colombiano**: se abre con sol, palma y mar, te suelta una frase costeña y se pone a programar en el repo donde estés.
 
-No es un chatbot. Es un loop. Tú le das una tarea, el modelo pide herramientas, Killami las ejecuta (con tu permiso cuando toca el disco) y le devuelve el resultado hasta que termina.
+No es un chatbot. Es un loop. Tú le das una tarea, el modelo pide herramientas, Quillami las ejecuta (con tu permiso cuando toca el disco) y le devuelve el resultado hasta que termina.
 
 Este repo es el agente y, a la vez, un lugar para **armar un agente de código desde aquí**: loop, tools, permisos, memoria, compactación, modelos. Sin frameworks de orquestación. TypeScript, claro, y MIT.
 
@@ -12,37 +12,41 @@ Este repo es el agente y, a la vez, un lugar para **armar un agente de código d
 - Edita y escribe código
 - Corre comandos en la carpeta actual
 - Pregunta antes de `write`, `edit` o `bash`
-- Recuerda el proyecto si existe un `KILLAMI.md` o un `AGENTS.md`
+- Recuerda el proyecto si existe un `QUILLAMI.md` o un `AGENTS.md` (también lee `KILLAMI.md` legacy)
 - Compacta el historial cuando la sesión se pone pesada
-- Cambia de modelo al vuelo (`sonnet`, `opus`, `fable`, `haiku`)
+- Cambia de modelo al vuelo (`sonnet`, `opus`, `fable`, `haiku`, `minimax`)
 
-El workspace es el directorio desde el que lanzas `killami`, no la carpeta de este repo.
+El workspace es el directorio desde el que lanzas `quillami`, no la carpeta de este repo.
 
 ## Requisitos
 
 - Node 22 o más
-- Una API key de [Anthropic](https://console.anthropic.com/)
+- Una API key de [Anthropic](https://console.anthropic.com/) **o** de [MiniMax](https://platform.minimax.io/)
 
 ## Instalar
 
 ```bash
-npm install -g killami-code
+npm install -g quillami-code
 ```
 
-O sin instalarlo: `npx killami-code`. El comando sigue siendo `killami` (también vale `killami-code`).
+O sin instalarlo: `npx quillami-code`. El comando es `quillami` (también vale `quillami-code`).
 
-Necesitas Node 22+ y una API key de Anthropic. Ponla en `~/.killami/.env` (para usarlo en cualquier carpeta) o en el `.env` del proyecto:
+Necesitas Node 22+ y una API key de Anthropic o MiniMax. La primera vez que falte, **Quillami te la pide en la terminal** (no se ve en pantalla) y la guarda en `~/.quillami/.env`. También puedes pegarla a mano ahí o en el `.env` del proyecto:
 
 ```bash
-mkdir -p ~/.killami
-echo 'ANTHROPIC_API_KEY=tu_key' > ~/.killami/.env
+mkdir -p ~/.quillami
+echo 'ANTHROPIC_API_KEY=tu_key' >> ~/.quillami/.env
+# o
+echo 'MINIMAX_API_KEY=tu_key' >> ~/.quillami/.env
 ```
+
+Si vienes de Killami, `~/.killami/.env` sigue cargándose para variables que falten en `~/.quillami`.
 
 Luego, en el repo donde vas a trabajar:
 
 ```bash
 cd ~/tu-proyecto
-killami
+quillami
 ```
 
 Para desarrollar este repo: `npm install` y `npm start`. Si cambias el código, `npm run build` actualiza el bin.
@@ -79,11 +83,11 @@ Eso restaura los archivos que `write` y `edit` tocaron en el último prompt. El 
 
 ## Modelos
 
-Hoy todos son de Anthropic. Default: Sonnet 4.5.
+Anthropic (Claude) y MiniMax. Default: Sonnet 4.5 (o MiniMax M3 si solo tienes `MINIMAX_API_KEY`).
 
 ```bash
-killami --model haiku
-killami -m fable
+quillami --model haiku
+quillami -m minimax
 ```
 
 O en la sesión:
@@ -91,41 +95,68 @@ O en la sesión:
 ```text
 /model
 /model sonnet
-/model opus
-/model fable
+/model minimax
+/login minimax
 ```
 
-| alias | modelo | para qué |
-|---|---|---|
-| `sonnet` | Sonnet 5 | programar, el equilibrio |
-| `sonnet-4.5` | Sonnet 4.5 | el default |
-| `opus` | Opus 5 | más capaz, más caro |
-| `fable` | Fable 5.1 | razonar largo |
-| `haiku` | Haiku 4.5 | rápido y barato |
+`/login` (o `/login anthropic`) rota la API key del proveedor: te la pide oculta y actualiza `~/.quillami/.env`.
 
-También puedes poner `KILLAMI_MODEL=sonnet` en el `.env`. Prioridad: `--model` → `KILLAMI_MODEL` → `ANTHROPIC_MODEL` → Sonnet 4.5.
+| alias | modelo | proveedor | para qué |
+|---|---|---|---|
+| `sonnet` | Sonnet 5 | Anthropic | programar, el equilibrio |
+| `sonnet-4.5` | Sonnet 4.5 | Anthropic | el default con Claude |
+| `opus` | Opus 5 | Anthropic | más capaz, más caro |
+| `fable` | Fable 5.1 | Anthropic | razonar largo |
+| `haiku` | Haiku 4.5 | Anthropic | rápido y barato |
+| `minimax` | MiniMax M3 | MiniMax | agente, tools, contexto largo |
+
+También puedes poner `QUILLAMI_MODEL=minimax` en el `.env` (o `KILLAMI_MODEL` legacy). Prioridad: `--model` → `QUILLAMI_MODEL` → `KILLAMI_MODEL` → `ANTHROPIC_MODEL` → Sonnet 4.5 (o MiniMax si solo hay key de MiniMax).
+
+MiniMax usa el endpoint compatible con Anthropic (`MINIMAX_BASE_URL` opcional; en China: `https://api.minimaxi.com/anthropic`).
+
+## Memoria global (`~/.quillami`)
+
+Tres archivos que Quillami puede ir escribiendo (con tu permiso, tool `remember_user`):
+
+| Archivo | Para qué |
+|---------|----------|
+| `soul.md` | Identidad de Quillami (voz, intereses, qué ha hecho como agente) |
+| `user.md` | Lo que va aprendiendo sobre **ti** (rol, metas, preferencias) |
+| `behaviors.md` | Cómo debe interactuar contigo (reglas de conducta) |
+
+El CLI registra en `projects.json` cada carpeta donde abres `quillami` (para ver en qué proyectos has estado).
+
+```text
+/memory      preview de soul, user, behaviors
+/projects    lista de workspaces visitados
+/soul /user /behaviors   ver el archivo completo (truncado si es enorme)
+```
+
+La primera vez crea plantillas mínimas. No guarda API keys ni secretos.
 
 ## Memoria del proyecto
 
-En la raíz del repo que estés editando, crea un `KILLAMI.md` (o un `AGENTS.md`). Killami lo lee cada vez que piensa: cómo está armado el código, qué no tocar, convenciones.
+En la raíz del repo que estés editando, crea un `QUILLAMI.md` (o un `AGENTS.md`). Quillami lo lee cada vez que piensa: cómo está armado el código, qué no tocar, convenciones.
 
-Si le pides que se acuerde de algo, lo anota ahí (y te pide permiso para escribirlo). Eso es memoria del repo. El historial de la charla es otra cosa: si pasa de ~20k tokens, se compacta solo.
+Si le pides que se acuerde de algo **del repo**, lo anota ahí (permiso `write`). Cosas **sobre ti** o sobre **cómo actuar** → `remember_user` y los `.md` globales. El historial de la charla es otra cosa: si pasa de ~20k tokens, se compacta solo.
 
 ## Tokens y gasto
 
-Después de cada turno ves cuántos tokens entraron y salieron, lo de la sesión y un estimado en dólares (precios de lista de Anthropic). `/usage` muestra el desglose. El total se guarda en `~/.killami/usage.json`.
+Después de cada turno ves cuántos tokens entraron y salieron, lo de la sesión y un estimado en dólares (precios de lista de Anthropic). `/usage` muestra el desglose. El total se guarda en `~/.quillami/usage.json`.
 
 ## Cómo está armado
 
 ```text
 src/index.ts            CLI, banner, /model, /undo, /usage
+src/config.ts           Quillami, ~/.quillami, QUILLAMI.md
 src/agent/loop.ts       modelo → tools → resultado → repeat
 src/agent/compact.ts    resume lo viejo (~20k tokens)
 src/usage.ts            tokens y estimado en dólares
 src/checkpoint.ts       fotos de write/edit por turno
-src/tools.ts            read write edit bash grep glob ls
+src/tools.ts            read write edit bash grep glob ls remember_user
 src/permissions.ts      s / n / a
-src/memory.ts           KILLAMI.md y AGENTS.md
+src/memory.ts           QUILLAMI.md y AGENTS.md
+src/userMemory.ts       soul.md, user.md, behaviors.md, projects.json
 src/models.ts           catálogo y alias
 src/banner.ts           el dibujo de la costa
 src/spinner.ts          “está pensando”
@@ -149,7 +180,7 @@ Los evals sí llaman al modelo: un repo temporal, una tarea, ¿el archivo quedó
 npm run eval
 ```
 
-Hay cuatro: cambiar un greeting, crear `sum`, arreglar `double`, y respetar un `KILLAMI.md` que bloquea un archivo. Usan `KILLAMI_EVAL_MODEL` (default: haiku).
+Hay cuatro: cambiar un greeting, crear `sum`, arreglar `double`, y respetar un `QUILLAMI.md` que bloquea un archivo. Usan `QUILLAMI_EVAL_MODEL` (default: haiku).
 
 ## CI
 

@@ -1,13 +1,13 @@
 {
-  "name": "killami-code",
+  "name": "quillami-code",
   "version": "0.1.0",
-  "description": "Agente de código en la terminal, nacido en el Caribe colombiano.",
+  "description": "Quillami Code — agente de código en la terminal, nacido en el Caribe colombiano.",
   "author": "Anuar Harb",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "killami": "./dist/index.js",
-    "killami-code": "./dist/index.js"
+    "quillami": "./dist/index.js",
+    "quillami-code": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -25,6 +25,7 @@
     "coding-agent",
     "agent",
     "anthropic",
+    "quillami",
     "caribe",
     "colombia"
   ],

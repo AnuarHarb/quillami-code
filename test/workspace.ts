@@ -5,7 +5,7 @@ import path from "node:path";
 export async function withWorkspace(
   run: (root: string) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "killami-"));
+  const root = await mkdtemp(path.join(tmpdir(), "quillami-"));
   const previous = process.cwd();
   process.chdir(root);
 

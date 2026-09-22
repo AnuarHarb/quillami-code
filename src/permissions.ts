@@ -1,6 +1,7 @@
 import { dim } from "./banner.js";
+import { CONFIG_DIR_NAME } from "./config.js";
 
-const RISKY_TOOLS = new Set(["write", "edit", "bash"]);
+const RISKY_TOOLS = new Set(["write", "edit", "bash", "remember_user"]);
 
 export type AskFn = (prompt: string) => Promise<string>;
 
@@ -58,6 +59,19 @@ function describeAction(name: string, input: unknown): string {
 
   if (name === "edit") {
     return `${stringArg(args.path)} · cambia un bloque`;
+  }
+
+  if (name === "remember_user") {
+    const target = stringArg(args.target);
+    const file =
+      target === "soul"
+        ? "soul.md"
+        : target === "user"
+          ? "user.md"
+          : target === "behaviors"
+            ? "behaviors.md"
+            : "memoria global";
+    return `Guardo en ~/${CONFIG_DIR_NAME}/${file}`;
   }
 
   return "";

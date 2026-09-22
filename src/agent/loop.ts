@@ -2,19 +2,31 @@ import Anthropic from "@anthropic-ai/sdk";
 import { type CheckpointStore } from "../checkpoint.js";
 import { compactIfNeeded } from "./compact.js";
 import { loadProjectMemory } from "../memory.js";
+import { APP_NAME, CONFIG_DIR_NAME, PROJECT_MEMORY_FILE } from "../config.js";
+import { loadGlobalMemory } from "../userMemory.js";
+import { type ModelChoice } from "../models.js";
 import { type PermissionGate } from "../permissions.js";
+import { createClient } from "../providers.js";
 import { startSpinner } from "../spinner.js";
 import { executeTool, TOOL_DEFINITIONS } from "../tools.js";
 import { type UsageLedger } from "../usage.js";
 
 const MAX_ITERATIONS = 20;
 
-const SYSTEM_PROMPT = `You are Killami Code, a local coding agent.
+const SYSTEM_PROMPT = `You are ${APP_NAME}, a local coding agent.
 You work inside the user's current workspace and use tools to inspect and edit files.
 Prefer small, targeted edits over rewriting whole files.
 If a tool fails, read the error and try another approach.
-write, edit, and bash need the user's approval. If they deny a tool, do not retry it unless they ask.
-Follow KILLAMI.md and AGENTS.md when they exist. If the user asks you to remember something about this repo, add it to KILLAMI.md.
+write, edit, bash, and remember_user need the user's approval. If they deny a tool, do not retry it unless they ask.
+
+Global memory in ~/${CONFIG_DIR_NAME} (use remember_user, not write):
+- soul.md: your identity as Quillami (voice, interests, what you have done). Not facts about the human.
+- user.md: facts about the person (role, goals, preferences, projects from their perspective).
+- behaviors.md: how you should interact (tone, length, workflows).
+
+Repo memory: ${PROJECT_MEMORY_FILE} / AGENTS.md for this codebase only (use write with permission).
+Do not update global memory every turn. Update when the user asks to remember something, or when a stable pattern is clear.
+Never store API keys, tokens, .env contents, or bash secrets in any memory file.
 Respond in the user's language.`;
 
 export type History = Anthropic.MessageParam[];
@@ -23,18 +35,18 @@ export async function runTurn(
   userMessage: string,
   history: History,
   gate: PermissionGate,
-  model: string,
+  model: ModelChoice,
   checkpoints: CheckpointStore,
   usage: UsageLedger,
 ): Promise<void> {
-  const client = new Anthropic();
+  const client = createClient(model);
 
   history.push({ role: "user", content: userMessage });
   checkpoints.beginTurn();
   usage.beginTurn();
 
   try {
-    await runToolLoop(client, model, history, gate, checkpoints, usage);
+    await runToolLoop(client, model.id, history, gate, checkpoints, usage);
   } finally {
     checkpoints.finishTurn();
   }
@@ -144,18 +156,30 @@ async function streamAssistant(
 }
 
 function buildSystemPrompt(): string {
-  const memory = loadProjectMemory();
-  if (!memory) {
-    return `${SYSTEM_PROMPT}
+  const globalMem = loadGlobalMemory();
+  const projectMem = loadProjectMemory();
+  const parts = [SYSTEM_PROMPT];
 
-There is no KILLAMI.md or AGENTS.md in this workspace yet. If the user wants durable notes about the project, create KILLAMI.md.`;
+  if (globalMem.body) {
+    parts.push(globalMem.body);
+    if (globalMem.truncated) {
+      parts.push(
+        `(Some global memory files were truncated in this prompt; full files live under ~/${CONFIG_DIR_NAME}.)`,
+      );
+    }
   }
 
-  return `${SYSTEM_PROMPT}
+  if (projectMem) {
+    parts.push(
+      `Project memory. Treat this as the source of truth for how this repo works:\n\n${projectMem}`,
+    );
+  } else {
+    parts.push(
+      `There is no ${PROJECT_MEMORY_FILE} or AGENTS.md in this workspace yet. If the user wants durable notes about the project, create ${PROJECT_MEMORY_FILE}.`,
+    );
+  }
 
-Project memory. Treat this as the source of truth for how this repo works:
-
-${memory}`;
+  return parts.join("\n\n");
 }
 
 function filePathOf(input: unknown): string | null {
@@ -167,6 +191,6 @@ function filePathOf(input: unknown): string | null {
 function summarizeInput(input: unknown): string {
   if (!input || typeof input !== "object") return "";
   const record = input as Record<string, unknown>;
-  const value = record.path ?? record.command ?? record.pattern;
+  const value = record.path ?? record.command ?? record.pattern ?? record.target;
   return typeof value === "string" ? value : "";
 }

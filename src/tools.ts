@@ -8,6 +8,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { CONFIG_DIR_NAME } from "./config.js";
+import { rememberUser } from "./userMemory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +107,34 @@ export const TOOL_DEFINITIONS = [
           description: "Directory path relative to the workspace",
         },
       },
+    },
+  },
+  {
+    name: "remember_user",
+    description:
+      `Save durable notes to the user's global ~/${CONFIG_DIR_NAME} memory (not the repo). ` +
+      "soul = Quillami's identity; user = facts about the human; behaviors = how to interact. " +
+      "Never store API keys or secrets.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          enum: ["soul", "user", "behaviors"],
+          description: "Which global file to update",
+        },
+        mode: {
+          type: "string",
+          enum: ["append", "replace_section"],
+          description: "append adds text; replace_section replaces under heading",
+        },
+        heading: {
+          type: "string",
+          description: 'Required for replace_section, e.g. "## Preferencias"',
+        },
+        content: { type: "string", description: "Markdown to save" },
+      },
+      required: ["target", "content"],
     },
   },
 ];
@@ -296,6 +326,10 @@ async function toolLs(input: Record<string, unknown>): Promise<string> {
   return lines.length > 0 ? lines.join("\n") : "(empty)";
 }
 
+async function toolRememberUser(input: Record<string, unknown>): Promise<string> {
+  return rememberUser(input);
+}
+
 const handlers: Record<string, (input: Record<string, unknown>) => Promise<string>> = {
   read: toolRead,
   write: toolWrite,
@@ -304,6 +338,7 @@ const handlers: Record<string, (input: Record<string, unknown>) => Promise<strin
   grep: toolGrep,
   glob: toolGlob,
   ls: toolLs,
+  remember_user: toolRememberUser,
 };
 
 export async function executeTool(

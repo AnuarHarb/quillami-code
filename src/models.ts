@@ -3,11 +3,13 @@ export type ModelPrice = {
   outputPerMillion: number;
 };
 
+export type Provider = "anthropic" | "minimax";
+
 export type ModelChoice = {
   id: string;
   alias: string;
   label: string;
-  provider: "anthropic";
+  provider: Provider;
   blurb: string;
   price: ModelPrice;
 };
@@ -17,6 +19,9 @@ const SONNET45_PRICE = { inputPerMillion: 3, outputPerMillion: 15 };
 const OPUS_PRICE = { inputPerMillion: 5, outputPerMillion: 25 };
 const FABLE_PRICE = { inputPerMillion: 10, outputPerMillion: 50 };
 const HAIKU_PRICE = { inputPerMillion: 1, outputPerMillion: 5 };
+const MINIMAX_M3_PRICE = { inputPerMillion: 0.3, outputPerMillion: 1.2 };
+
+export const MINIMAX_M3_ID = "MiniMax-M3";
 
 export const MODELS: ModelChoice[] = [
   {
@@ -59,6 +64,14 @@ export const MODELS: ModelChoice[] = [
     blurb: "Liviano, pa' cosas rápidas",
     price: HAIKU_PRICE,
   },
+  {
+    id: MINIMAX_M3_ID,
+    alias: "minimax",
+    label: "MiniMax M3",
+    provider: "minimax",
+    blurb: "Agente, tools y contexto largo",
+    price: MINIMAX_M3_PRICE,
+  },
 ];
 
 export const DEFAULT_MODEL_ID = "claude-sonnet-4-5";
@@ -87,13 +100,34 @@ export function resolveModel(raw: string | undefined): ModelChoice | null {
     };
   }
 
+  if (needle.startsWith("minimax-")) {
+    return {
+      id: raw.trim(),
+      alias: raw.trim(),
+      label: raw.trim(),
+      provider: "minimax",
+      blurb: "ID directo",
+      price: MINIMAX_M3_PRICE,
+    };
+  }
+
   return null;
 }
 
 export function defaultModel(): ModelChoice {
-  return (
+  const fromEnv =
+    resolveModel(process.env.QUILLAMI_MODEL) ??
     resolveModel(process.env.KILLAMI_MODEL) ??
-    resolveModel(process.env.ANTHROPIC_MODEL) ??
+    resolveModel(process.env.ANTHROPIC_MODEL);
+  if (fromEnv) return fromEnv;
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const minimaxKey = process.env.MINIMAX_API_KEY?.trim();
+  if (!anthropicKey && minimaxKey) {
+    return MODELS.find((model) => model.id === MINIMAX_M3_ID) ?? MODELS[0];
+  }
+
+  return (
     MODELS.find((model) => model.id === DEFAULT_MODEL_ID) ??
     MODELS[0]
   );
@@ -110,6 +144,7 @@ export function priceForModel(id: string): ModelPrice {
 export function formatModelList(currentId: string): string {
   return MODELS.map((model) => {
     const mark = model.id === currentId ? "*" : " ";
-    return `  ${mark} ${model.alias.padEnd(10)} ${model.label.padEnd(12)} ${model.blurb}`;
+    const tag = model.provider === "minimax" ? "MiniMax" : "Anthropic";
+    return `  ${mark} ${model.alias.padEnd(10)} ${model.label.padEnd(14)} ${tag.padEnd(10)} ${model.blurb}`;
   }).join("\n");
 }
