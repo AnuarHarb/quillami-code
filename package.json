@@ -16,7 +16,7 @@
     "type": "git",
     "url": "git+https://github.com/AnuarHarb/quillami-code.git"
   },
-  "homepage": "https://github.com/AnuarHarb/quillami-code#readme",
+  "homepage": "https://anuarharb.github.io/quillami-code/",
   "bugs": {
     "url": "https://github.com/AnuarHarb/quillami-code/issues"
   },
@@ -36,7 +36,7 @@
     "build": "tsc",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "test": "tsx --import ./test/setup.ts --test --test-concurrency=1 test/*.test.ts",
     "eval": "tsx evals/run.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test && npm run build"

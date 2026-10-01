@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import {
@@ -15,8 +16,7 @@ describe("sessions", () => {
   const previousHome = process.env.HOME;
 
   beforeEach(() => {
-    tempHome = path.join("/tmp", `quillami-sessions-${Date.now()}`);
-    mkdirSync(tempHome, { recursive: true });
+    tempHome = mkdtempSync(path.join(tmpdir(), "quillami-sessions-"));
     process.env.HOME = tempHome;
   });
 
