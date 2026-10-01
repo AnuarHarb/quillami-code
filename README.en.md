@@ -4,7 +4,7 @@
 
 A coding agent for your terminal, born on the **Colombian Caribbean coast**: sun, horizon, sea, a coastal Spanish line, then code in whatever repo you are in.
 
-Not a chatbot—a loop: you assign work, the model calls tools, Quillami runs them (with permission when disk or network is involved) until the job is done.
+You assign work, the model calls tools, Quillami runs them (with permission when disk or network is involved) until the job is done.
 
 TypeScript, MIT, no orchestration frameworks. This repo is the agent and a blueprint to build one.
 

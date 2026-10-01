@@ -4,7 +4,7 @@
 
 Agente de código en la terminal, nacido en el **Caribe colombiano**: sol, horizonte, mar, una frase costeña y a programar en el repo donde estés.
 
-No es un chatbot. Es un loop: tú das la tarea, el modelo pide herramientas, Quillami las ejecuta (con permiso si toca disco) y repite hasta terminar.
+Tú das la tarea, el modelo pide herramientas, Quillami las ejecuta (con permiso si toca disco) y repite hasta terminar.
 
 TypeScript, MIT, sin frameworks de orquestación. Este repo es el agente y un lugar para armar uno desde cero.
 
