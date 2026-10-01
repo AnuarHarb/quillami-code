@@ -6,7 +6,7 @@ import {
   type SystemOneResult,
   type Usage,
 } from "@typesafe-ai/sdk";
-import { type ModelChoice } from "./models.js";
+import { JEV_ROUTER_ID } from "./openrouter.js";
 
 const JEV_TIMEOUT_MS = 4_000;
 const JEV_RETRY = { maxRetries: 1 } as const;
@@ -24,14 +24,17 @@ export function jevEnabled(): boolean {
 }
 
 export function jevBannerLine(): string {
-  return jevEnabled()
-    ? "jev: activo"
-    : "jev: apagado (/login typesafe)";
+  if (jevEnabled()) return "jev: activo";
+  return process.env.QUILLAMI_JEV === "0"
+    ? "jev: apagado (QUILLAMI_JEV=0)"
+    : "jev: apagado (/setup para añadir tu key)";
 }
 
-/** Línea visible antes del stream cuando `/model auto` enruta con Jev. */
-export function formatJevModelPick(model: ModelChoice, detail: string): string {
-  return `· jev · responde con ${model.label} (${model.id}) — ${detail}`;
+/** OpenRouter answered with a different model than requested (Jev Router or a ~latest alias). */
+export function formatServedModel(requested: string, served: string): string {
+  return requested === JEV_ROUTER_ID
+    ? `· jev · responde con ${served}`
+    : `· openrouter · ${requested} → ${served}`;
 }
 
 export function recordJevUsage(usage: Usage): void {

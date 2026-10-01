@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import {
   mkdir,
   readdir,
@@ -9,24 +8,48 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_DIR_NAME } from "./config.js";
+import { ripgrepSearch } from "./ripgrep.js";
+import { HeadTailBuffer, MAX_TOOL_OUTPUT_CHARS } from "./truncate.js";
 import { fetchPublicUrl } from "./webFetch.js";
 import { rememberUser } from "./userMemory.js";
-
-const execFileAsync = promisify(execFile);
 
 const IGNORE = new Set(["node_modules", ".git", "dist"]);
 export const MAX_FILE_BYTES = 200_000;
 const MAX_GREP_HITS = 50;
+const MAX_GREP_LINE_CHARS = 300;
+const READ_MAX_BYTES = 5_000_000;
+const READ_DEFAULT_LIMIT = 2000;
+const READ_MAX_LINE_CHARS = 2000;
+export const BASH_DEFAULT_TIMEOUT_S = 120;
+export const BASH_MAX_TIMEOUT_S = 1800;
+const BASH_KILL_GRACE_MS = 2000;
+const BASH_KEEP_CHARS = 12_000;
+
+export type ToolContext = {
+  signal?: AbortSignal;
+  /** Raw stdout/stderr chunks from bash while it runs, for live display. */
+  onOutput?: (chunk: string) => void;
+};
+
+type ToolHandler = (input: Record<string, unknown>, ctx?: ToolContext) => Promise<string>;
 
 export const BUILTIN_TOOL_DEFINITIONS = [
   {
     name: "read",
     description:
-      "Read a UTF-8 text file. Paths are relative to the workspace root. Output includes line numbers.",
+      `Read a UTF-8 text file. Paths are relative to the workspace root. Output includes line numbers. Returns at most ${READ_DEFAULT_LIMIT} lines per call; use offset and limit to page through large files.`,
     input_schema: {
       type: "object" as const,
       properties: {
         path: { type: "string", description: "File path relative to the workspace" },
+        offset: {
+          type: "number",
+          description: "1-based line to start from (default 1)",
+        },
+        limit: {
+          type: "number",
+          description: `Maximum lines to return (default ${READ_DEFAULT_LIMIT})`,
+        },
       },
       required: ["path"],
     },
@@ -61,11 +84,15 @@ export const BUILTIN_TOOL_DEFINITIONS = [
   {
     name: "bash",
     description:
-      "Run a shell command in the workspace root. Returns stdout and stderr.",
+      `Run a shell command in the workspace root. Returns stdout and stderr. Stops after timeout_seconds (default ${BASH_DEFAULT_TIMEOUT_S}). Raise it for installs, builds, or long test suites. Long output keeps only its start and end, so pipe through head, tail, or grep when you need a specific part.`,
     input_schema: {
       type: "object" as const,
       properties: {
         command: { type: "string", description: "Shell command to run" },
+        timeout_seconds: {
+          type: "number",
+          description: `Seconds before the command is stopped (default ${BASH_DEFAULT_TIMEOUT_S}, max ${BASH_MAX_TIMEOUT_S})`,
+        },
       },
       required: ["command"],
     },
@@ -73,11 +100,11 @@ export const BUILTIN_TOOL_DEFINITIONS = [
   {
     name: "grep",
     description:
-      "Search file contents with a JavaScript regular expression. Optional path limits the search.",
+      `Search file contents with a regular expression. Uses ripgrep when installed (respects .gitignore), otherwise a slower built-in search. Returns path:line:text, at most ${MAX_GREP_HITS} matches. Optional path limits the search.`,
     input_schema: {
       type: "object" as const,
       properties: {
-        pattern: { type: "string", description: "JavaScript regular expression" },
+        pattern: { type: "string", description: "Regular expression" },
         path: {
           type: "string",
           description: "File or directory relative to the workspace. Defaults to the workspace root.",
@@ -199,11 +226,10 @@ async function readText(filePath: string): Promise<string> {
   return readFile(filePath, "utf8");
 }
 
-function withLineNumbers(content: string): string {
-  return content
-    .split("\n")
-    .map((line, index) => `${String(index + 1).padStart(4, " ")}|${line}`)
-    .join("\n");
+function positiveInt(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.floor(value)
+    : undefined;
 }
 
 function asString(value: unknown, field: string): string {
@@ -215,7 +241,41 @@ function asString(value: unknown, field: string): string {
 
 async function toolRead(input: Record<string, unknown>): Promise<string> {
   const filePath = resolveInWorkspace(asString(input.path, "path"));
-  return withLineNumbers(await readText(filePath));
+  const info = await stat(filePath);
+  if (info.size > READ_MAX_BYTES) {
+    throw new Error(`file is larger than ${READ_MAX_BYTES} bytes; use grep or bash with head/tail`);
+  }
+  const lines = (await readFile(filePath, "utf8")).split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+
+  const offset = positiveInt(input.offset) ?? 1;
+  const limit = positiveInt(input.limit) ?? READ_DEFAULT_LIMIT;
+  if (offset > lines.length) {
+    throw new Error(`offset ${offset} is past the end of the file (${lines.length} lines)`);
+  }
+
+  const end = Math.min(lines.length, offset - 1 + limit);
+  const rows: string[] = [];
+  let chars = 0;
+  let lastShown = offset - 1;
+  for (let index = offset - 1; index < end; index += 1) {
+    const line = lines[index];
+    const shown =
+      line.length > READ_MAX_LINE_CHARS
+        ? `${line.slice(0, READ_MAX_LINE_CHARS)} ... [line cut, ${line.length} characters]`
+        : line;
+    const row = `${String(index + 1).padStart(4, " ")}|${shown}`;
+    if (rows.length > 0 && chars + row.length > MAX_TOOL_OUTPUT_CHARS) break;
+    rows.push(row);
+    chars += row.length + 1;
+    lastShown = index + 1;
+  }
+
+  const body = rows.join("\n");
+  if (lastShown >= lines.length && offset === 1) return body;
+  const more =
+    lastShown < lines.length ? `; call read with offset=${lastShown + 1} to continue` : "";
+  return `${body}\n\n(lines ${offset}-${lastShown} of ${lines.length}${more})`;
 }
 
 async function toolWrite(input: Record<string, unknown>): Promise<string> {
@@ -247,47 +307,116 @@ export function applyEdit(content: string, oldString: string, newString: string)
   return content.replace(oldString, () => newString);
 }
 
-async function toolBash(input: Record<string, unknown>): Promise<string> {
+export function bashTimeoutSeconds(input: Record<string, unknown>): number {
+  const requested = positiveInt(input.timeout_seconds);
+  return Math.min(requested ?? BASH_DEFAULT_TIMEOUT_S, BASH_MAX_TIMEOUT_S);
+}
+
+async function toolBash(input: Record<string, unknown>, ctx?: ToolContext): Promise<string> {
   const command = asString(input.command, "command");
-  try {
-    const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
+  const signal = ctx?.signal;
+  const timeoutSeconds = bashTimeoutSeconds(input);
+  signal?.throwIfAborted();
+
+  return new Promise((resolve, reject) => {
+    // Own process group, so a timeout or Ctrl+C also stops grandchildren (npm → node → ...).
+    const child = spawn("sh", ["-c", command], {
       cwd: workspaceRoot(),
-      timeout: 30_000,
-      maxBuffer: 1_000_000,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    return formatProcessOutput(stdout, stderr, 0);
-  } catch (error) {
-    if (isExecError(error)) {
-      return formatProcessOutput(error.stdout, error.stderr, error.code ?? 1);
-    }
-    throw error;
-  }
+    const stdout = new HeadTailBuffer(BASH_KEEP_CHARS);
+    const stderr = new HeadTailBuffer(BASH_KEEP_CHARS);
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      stdout.push(chunk);
+      ctx?.onOutput?.(chunk);
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr.push(chunk);
+      ctx?.onOutput?.(chunk);
+    });
+
+    let stopReason: "timeout" | "cancelled" | null = null;
+    const killGroup = (killSignal: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, killSignal);
+      } catch {
+        // Already exited.
+      }
+    };
+    const stop = (reason: "timeout" | "cancelled") => {
+      stopReason = reason;
+      killGroup("SIGTERM");
+      setTimeout(() => killGroup("SIGKILL"), BASH_KILL_GRACE_MS).unref();
+    };
+    const timer = setTimeout(() => stop("timeout"), timeoutSeconds * 1000);
+    const onAbort = () => stop("cancelled");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    child.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.on("close", (code, killedBy) => {
+      cleanup();
+      const exit = code ?? (killedBy ? `signal ${killedBy}` : 1);
+      const note =
+        stopReason === "timeout"
+          ? `stopped after ${timeoutSeconds}s timeout; retry with a higher timeout_seconds if it needs longer`
+          : stopReason === "cancelled"
+            ? "stopped: the user cancelled the turn"
+            : "";
+      resolve(formatProcessOutput(stdout.toString(), stderr.toString(), exit, note));
+    });
+  });
 }
 
 function formatProcessOutput(
-  stdout: string | undefined,
-  stderr: string | undefined,
+  stdout: string,
+  stderr: string,
   exitCode: string | number,
+  note: string,
 ): string {
   const parts = [
     `exit ${exitCode}`,
-    stdout?.trim() ? `stdout:\n${stdout}` : "",
-    stderr?.trim() ? `stderr:\n${stderr}` : "",
+    note,
+    stdout.trim() ? `stdout:\n${stdout}` : "",
+    stderr.trim() ? `stderr:\n${stderr}` : "",
   ];
-  return parts.filter(Boolean).join("\n\n") || `exit ${exitCode}`;
+  return parts.filter(Boolean).join("\n\n");
 }
 
-function isExecError(
-  error: unknown,
-): error is { stdout?: string; stderr?: string; code?: string | number } {
-  return typeof error === "object" && error !== null;
-}
-
-async function toolGrep(input: Record<string, unknown>): Promise<string> {
+async function toolGrep(input: Record<string, unknown>, ctx?: ToolContext): Promise<string> {
   const pattern = asString(input.pattern, "pattern");
   const relativePath = typeof input.path === "string" ? input.path : ".";
-  const regex = new RegExp(pattern);
   const target = resolveInWorkspace(relativePath);
+  await stat(target);
+
+  const fast = await ripgrepSearch(pattern, path.relative(workspaceRoot(), target) || ".", {
+    cwd: workspaceRoot(),
+    maxHits: MAX_GREP_HITS,
+    maxLineChars: MAX_GREP_LINE_CHARS,
+    maxFileBytes: MAX_FILE_BYTES,
+    ignoreDirs: [...IGNORE],
+    signal: ctx?.signal,
+  });
+  ctx?.signal?.throwIfAborted();
+  if (fast) {
+    if (fast.hits.length === 0) return "no matches";
+    const lines = [...fast.hits];
+    if (fast.truncated) lines.push(`(stopped at ${MAX_GREP_HITS} matches)`);
+    return lines.join("\n");
+  }
+  return grepWithWalk(pattern, target);
+}
+
+export async function grepWithWalk(pattern: string, target: string): Promise<string> {
+  const regex = new RegExp(pattern);
   const info = await stat(target);
   const files = info.isFile() ? [target] : await walkFiles(target);
   const hits: string[] = [];
@@ -303,7 +432,9 @@ async function toolGrep(input: Record<string, unknown>): Promise<string> {
     const relative = path.relative(workspaceRoot(), file);
     for (const [index, line] of content.split("\n").entries()) {
       if (!regex.test(line)) continue;
-      hits.push(`${relative}:${index + 1}:${line}`);
+      const shown =
+        line.length > MAX_GREP_LINE_CHARS ? `${line.slice(0, MAX_GREP_LINE_CHARS)} ...` : line;
+      hits.push(`${relative}:${index + 1}:${shown}`);
       if (hits.length >= MAX_GREP_HITS) {
         hits.push(`(stopped at ${MAX_GREP_HITS} matches)`);
         return hits.join("\n");
@@ -352,16 +483,20 @@ async function toolRememberUser(input: Record<string, unknown>): Promise<string>
   return rememberUser(input);
 }
 
-async function toolWebFetch(input: Record<string, unknown>): Promise<string> {
+async function toolWebFetch(
+  input: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<string> {
+  const signal = ctx?.signal;
   const url = asString(input.url, "url");
   const maxChars =
     typeof input.max_chars === "number" && Number.isFinite(input.max_chars)
       ? input.max_chars
       : undefined;
-  return fetchPublicUrl(url, { maxChars });
+  return fetchPublicUrl(url, { maxChars, signal });
 }
 
-const handlers: Record<string, (input: Record<string, unknown>) => Promise<string>> = {
+const handlers: Record<string, ToolHandler> = {
   read: toolRead,
   write: toolWrite,
   edit: toolEdit,
@@ -379,6 +514,7 @@ export const TOOL_DEFINITIONS = BUILTIN_TOOL_DEFINITIONS;
 export async function executeBuiltinTool(
   name: string,
   input: unknown,
+  ctx?: ToolContext,
 ): Promise<string> {
   const handler = handlers[name];
   if (!handler) {
@@ -386,7 +522,7 @@ export async function executeBuiltinTool(
   }
   const args =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  return handler(args);
+  return handler(args, ctx);
 }
 
 export async function executeTool(

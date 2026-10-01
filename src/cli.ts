@@ -1,17 +1,19 @@
 import type { AgentMode } from "./mode.js";
 
-export type CliCommand = "chat" | "doctor" | "sessions" | "mcp";
+export type CliCommand = "chat" | "doctor" | "sessions" | "mcp" | "models" | "setup";
 
 export type CliArgs = {
   command: CliCommand;
   prompt?: string;
+  /** Search text for `quillami models <texto>`. */
+  query?: string;
   model?: string;
   mode: AgentMode;
   resume?: string;
   continueLast: boolean;
 };
 
-const SUBCOMMANDS = new Set<CliCommand>(["doctor", "sessions", "mcp"]);
+const SUBCOMMANDS = new Set<CliCommand>(["doctor", "sessions", "mcp", "models", "setup"]);
 
 export function parseArgs(argv: string[]): CliArgs {
   let model: string | undefined;
@@ -53,6 +55,7 @@ export function parseArgs(argv: string[]): CliArgs {
   if (positionals.length > 0 && SUBCOMMANDS.has(positionals[0] as CliCommand)) {
     return {
       command: positionals[0] as CliCommand,
+      query: positionals.slice(1).join(" ") || undefined,
       model,
       mode,
       resume,

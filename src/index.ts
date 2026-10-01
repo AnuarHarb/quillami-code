@@ -6,10 +6,22 @@ import { CONFIG_DIR_NAME, PROJECT_MEMORY_FILE } from "./config.js";
 import { maybeProposeAutoMemory } from "./autoMemory.js";
 import { runTurn, type History } from "./agent/loop.js";
 import { parseArgs } from "./cli.js";
-import { assessMessageComplexity } from "./decisions.js";
+import { BENCHMARK_ATTRIBUTION, benchmarksEnabled, loadBenchmarks } from "./benchmarks.js";
+import {
+  assessMessageComplexity,
+  formatAutoPick,
+  stickToPrevious,
+  type AutoPick,
+} from "./decisions.js";
 import { formatDoctorReport, runDoctor } from "./doctor.js";
-import { hasKey, promptAndSaveKey, promptAndSaveNamedKey } from "./auth.js";
-import { formatJevModelPick, jevBannerLine, jevEnabled } from "./jev.js";
+import {
+  hasKey,
+  promptAndSaveKey,
+  promptAndSaveNamedKey,
+  readHidden,
+  saveUserKey,
+} from "./auth.js";
+import { jevBannerLine, jevEnabled } from "./jev.js";
 import { createCheckpointStore, type UndoResult } from "./checkpoint.js";
 import { loadEnv } from "./env.js";
 import { listMemoryFiles } from "./memory.js";
@@ -19,18 +31,32 @@ import {
   type McpRuntime,
 } from "./mcp.js";
 import {
-  DEFAULT_MODEL_ID,
+  autoTiers,
   defaultModel,
   formatModelLine,
   formatModelList,
   isAutoModel,
-  MINIMAX_M3_ID,
   resolveModel,
   type ModelChoice,
 } from "./models.js";
+import { pickModel } from "./modelPicker.js";
 import { formatModeLabel, promptPrefix, type AgentMode } from "./mode.js";
+import { createTurnInterrupter, type TurnInterrupter } from "./interrupt.js";
+import {
+  KEY_SLOTS,
+  markOnboardingDone,
+  onboardingDone,
+  runOnboarding,
+  type OnboardingIO,
+} from "./onboarding.js";
 import { createAssessRisk, createGate } from "./permissions.js";
-import { keyEnvFor, type Provider } from "./providers.js";
+import {
+  featuredOpenRouterModels,
+  formatOpenRouterModels,
+  loadOpenRouterCatalog,
+  searchOpenRouterModels,
+} from "./openrouter.js";
+import { anyProviderKey, keyEnvFor, type Provider } from "./providers.js";
 import {
   createSessionId,
   formatSessionsList,
@@ -41,6 +67,7 @@ import {
   type SessionFile,
 } from "./sessions.js";
 import { createToolRegistry, type ToolRegistry } from "./toolRegistry.js";
+import { estimateTokens } from "./tokens.js";
 import { createUsageLedger } from "./usage.js";
 import {
   ensureTemplates,
@@ -51,33 +78,173 @@ import {
   type MemoryTarget,
 } from "./userMemory.js";
 
-function anyProviderKey(): boolean {
-  return hasKey("anthropic") || hasKey("minimax");
+/** Before the REPL exists: one short-lived readline per question, so hidden key input owns stdin. */
+function startupIO(): OnboardingIO {
+  return {
+    ask: async (prompt) => {
+      const rl = createInterface({ input: stdin, output: stdout });
+      rl.on("SIGINT", () => {
+        rl.close();
+        console.log("");
+        process.exit(130);
+      });
+      try {
+        return await rl.question(prompt);
+      } catch {
+        console.log("");
+        process.exit(130);
+      } finally {
+        rl.close();
+      }
+    },
+    secret: (prompt) => readHidden(prompt).catch(() => null),
+    print: (text) => console.log(text),
+  };
 }
 
-async function pickInitialProvider(): Promise<Provider | null> {
-  console.log("\n¿Con cuál proveedor quieres empezar?\n");
-  console.log("  1  Anthropic (Claude)");
-  console.log("  2  MiniMax\n");
+function replIO(rl: Interface): OnboardingIO {
+  return {
+    ask: (prompt) => rl.question(prompt).catch(() => ""),
+    secret: async (prompt) => {
+      rl.pause();
+      try {
+        return await readHidden(prompt);
+      } catch {
+        return null;
+      } finally {
+        rl.resume();
+      }
+    },
+    print: (text) => console.log(text),
+  };
+}
 
-  const rl = createInterface({ input: stdin, output: stdout });
-  try {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const raw = (await rl.question("Elige 1 o 2: ")).trim();
-      if (raw === "1") return "anthropic";
-      if (raw === "2") return "minimax";
-    }
+/**
+ * Interactive model choice: picker, key check, catalog check, and the saved
+ * default (`always` during setup, `ask` from /model).
+ */
+async function chooseModel(options: {
+  io: OnboardingIO;
+  current?: ModelChoice;
+  query?: string;
+  saveDefault: "always" | "ask";
+  rl?: Interface;
+}): Promise<ModelChoice | null> {
+  const catalog = await loadOpenRouterCatalog();
+  const picked = await pickModel({
+    ask: options.io.ask,
+    print: options.io.print,
+    currentId: options.current?.id,
+    catalog,
+    query: options.query,
+  });
+  if (!picked) return null;
+  const resolved = resolveModel(picked);
+  if (!resolved) return null;
+
+  if (!(await ensureKeyForModel(resolved, options.rl))) {
+    console.log(dim(`   sin key de ${keyEnvFor(resolved.provider)}.`));
     return null;
-  } finally {
-    rl.close();
   }
+  const checked = await checkOpenRouterModel(resolved);
+  if (!checked.ok) return null;
+  if (isAutoModel(checked.model)) await ensureJevKeyForAuto(options.rl);
+
+  const saveIt =
+    options.saveDefault === "always" ||
+    /^s/i.test((await options.io.ask("¿Lo dejo por defecto para las próximas sesiones? (s/N): ")).trim());
+  if (saveIt) {
+    saveUserKey("QUILLAMI_MODEL", checked.model.alias);
+    process.env.QUILLAMI_MODEL = checked.model.alias;
+    console.log(dim(`   modelo por defecto: ${checked.model.alias}`));
+  }
+  return checked.model;
 }
 
-function modelForProvider(provider: Provider): ModelChoice {
-  if (provider === "minimax") {
-    return resolveModel(MINIMAX_M3_ID)!;
+/** Keys first, then (if a model key was added) the model to start with. */
+async function runSetup(
+  io: OnboardingIO,
+  options: { current?: ModelChoice; rl?: Interface; pickModel: boolean },
+): Promise<ModelChoice | null> {
+  const result = await runOnboarding(io);
+  if (result.hasModelKey) markOnboardingDone();
+  const addedModelKey = result.added.some(
+    (id) => KEY_SLOTS.find((slot) => slot.id === id)?.model,
+  );
+  const addedAutoKey = result.added.includes("typesafe") || result.added.includes("artificialanalysis");
+  const offerAuto = addedAutoKey && result.hasModelKey && !(options.current && isAutoModel(options.current));
+  if (!(addedModelKey || offerAuto) || !options.pickModel) return null;
+
+  io.print("\n¿Con qué modelo arrancas? Lo dejo por defecto; luego lo cambias con /model.");
+  if (resolveModel("auto")) {
+    io.print(
+      dim(
+        process.env.TYPESAFE_API_KEY?.trim()
+          ? "   Recomendado: 1 (auto): Jev elige el mejor modelo para cada tarea."
+          : "   auto (1) necesita tu key de Jev; sin ella, elige un modelo fijo.",
+      ),
+    );
   }
-  return resolveModel(DEFAULT_MODEL_ID)!;
+  return chooseModel({ io, current: options.current, saveDefault: "always", rl: options.rl });
+}
+
+/**
+ * Checks an OpenRouter id against the public catalog and returns the model
+ * re-resolved with catalog pricing. Without the catalog (offline) it lets the
+ * id through; the API will reject a bad one.
+ */
+async function checkOpenRouterModel(
+  model: ModelChoice,
+): Promise<{ ok: boolean; model: ModelChoice }> {
+  if (model.provider !== "openrouter" || isAutoModel(model)) return { ok: true, model };
+  const catalog = await loadOpenRouterCatalog();
+  if (!catalog) {
+    console.log(dim("   no pude leer el catálogo de OpenRouter; sigo sin precios."));
+    return { ok: true, model };
+  }
+  const known = catalog.find((entry) => entry.id === model.id);
+  if (!known) {
+    console.log(dim(`   OpenRouter no tiene "${model.id}".`));
+    const hint = model.id.split("/").pop() ?? model.id;
+    const similar = searchOpenRouterModels(catalog, hint.split(/[-.:]/)[0] ?? hint, 8);
+    if (similar.length > 0) {
+      console.log(dim("   parecidos:"));
+      console.log(dim(formatOpenRouterModels(similar)));
+    }
+    console.log(dim("   busca con /models <texto> (o quillami models <texto>)\n"));
+    return { ok: false, model };
+  }
+  if (!known.tools) {
+    console.log(
+      dim(`   ojo: ${model.id} no soporta tools; no voy a poder leer, buscar ni editar archivos.`),
+    );
+  }
+  return { ok: true, model: resolveModel(model.alias) ?? model };
+}
+
+async function printOpenRouterSearch(query: string): Promise<void> {
+  const catalog = await loadOpenRouterCatalog();
+  if (!catalog) {
+    console.log(dim("   no pude leer el catálogo de OpenRouter (https://openrouter.ai/models).\n"));
+    return;
+  }
+  const found = query.trim()
+    ? searchOpenRouterModels(catalog, query)
+    : featuredOpenRouterModels(catalog);
+  console.log(`\n${formatOpenRouterModels(found)}\n`);
+  console.log(dim("   precios en USD por millón de tokens (entrada / salida). Usa: /model <id>"));
+  if (!query.trim()) console.log(dim("   busca más: quillami models <texto> (ej. qwen coder, deepseek, gemini)"));
+  console.log("");
+}
+
+/** auto without Jev still runs (always the standard tier), so a missing key is offered, not required. */
+async function ensureJevKeyForAuto(rl?: Interface): Promise<void> {
+  if (process.env.TYPESAFE_API_KEY?.trim()) return;
+  console.log(dim("\n   auto usa Jev para elegir el mejor modelo en cada tarea."));
+  if (rl) rl.pause();
+  const saved = await promptAndSaveNamedKey("TYPESAFE_API_KEY", "TypeSafe (Jev)", "https://typesafe.ai");
+  if (rl) rl.resume();
+  if (!saved) console.log(dim("   sin key de Jev, auto usa Sonnet en cada turno. Añádela luego con /setup."));
 }
 
 async function ensureKeyForModel(
@@ -121,6 +288,16 @@ async function handleSlash(
       await promptAndSaveKey(provider);
     }
     rl.resume();
+    return { model, mode, sessionId, handled: true };
+  }
+
+  if (command === "/setup") {
+    const picked = await runSetup(replIO(rl), { current: model, rl, pickModel: true });
+    if (picked) {
+      model = picked;
+      console.log(dim(`   modelo: ${formatModelLine(model)}`));
+    }
+    console.log("");
     return { model, mode, sessionId, handled: true };
   }
 
@@ -176,33 +353,49 @@ async function handleSlash(
     return { model, mode, sessionId, handled: false };
   }
 
-  if (!arg) {
-    console.log(`\n${formatModelList(model.id)}\n`);
-    console.log(dim(`   actual: ${formatModelLine(model)}`));
-    console.log(dim("   ejemplo: /model haiku · /login minimax\n"));
+  if (command === "/models" || !arg) {
+    console.log(dim(`\n   actual: ${formatModelLine(model)}`));
+    const picked = await chooseModel({
+      io: replIO(rl),
+      current: model,
+      query: command === "/models" && arg ? arg : undefined,
+      saveDefault: "ask",
+      rl,
+    });
+    if (picked) model = picked;
+    console.log(dim(`   modelo: ${formatModelLine(model)}\n`));
     return { model, mode, sessionId, handled: true };
   }
 
-  const next = resolveModel(arg);
-  if (!next) {
-    console.log(dim(`   no conozco "${arg}". Prueba /model para ver la lista.\n`));
+  const resolved = resolveModel(arg);
+  if (!resolved) {
+    console.log(
+      dim(`   no conozco "${arg}". Prueba /model para la lista o /models ${arg} en OpenRouter.\n`),
+    );
     return { model, mode, sessionId, handled: true };
   }
 
-  const ready = await ensureKeyForModel(next, rl);
+  const ready = await ensureKeyForModel(resolved, rl);
   if (!ready) {
-    console.log(dim(`   sin key de ${keyEnvFor(next.provider)}, sigo con ${model.alias}.\n`));
+    console.log(dim(`   sin key de ${keyEnvFor(resolved.provider)}, sigo con ${model.alias}.\n`));
     return { model, mode, sessionId, handled: true };
   }
 
-  console.log(dim(`   modelo: ${formatModelLine(next)}\n`));
-  return { model: next, mode, sessionId, handled: true };
+  const checked = await checkOpenRouterModel(resolved);
+  if (!checked.ok) {
+    console.log(dim(`   sigo con ${model.alias}.\n`));
+    return { model, mode, sessionId, handled: true };
+  }
+
+  console.log(dim(`   modelo: ${formatModelLine(checked.model)}\n`));
+  return { model: checked.model, mode, sessionId, handled: true };
 }
 
 function resolveLoginProvider(raw: string): Provider | null {
   const needle = raw.trim().toLowerCase();
   if (!needle || needle === "anthropic" || needle === "claude") return "anthropic";
   if (needle === "minimax") return "minimax";
+  if (needle === "openrouter" || needle === "or") return "openrouter";
   return null;
 }
 
@@ -250,13 +443,20 @@ function persistSession(
   const session: SessionFile = {
     id: sessionId,
     cwd: process.cwd(),
-    model: model.id,
+    model: model.alias,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     title: existing?.title ?? titleFromMessage(titleSeed),
     history,
   };
   saveSession(session);
+}
+
+type AutoState = { last: { pick: AutoPick; at: number } | null };
+
+/** Rough prompt size of the next request: history plus system prompt and tool definitions. */
+function estimateContextTokens(history: History): number {
+  return estimateTokens(JSON.stringify(history)) + 1_500;
 }
 
 async function runUserTurn(options: {
@@ -269,14 +469,31 @@ async function runUserTurn(options: {
   usage: ReturnType<typeof createUsageLedger>;
   registry: ToolRegistry;
   ask: (prompt: string) => Promise<string>;
-}): Promise<void> {
+  signal?: AbortSignal;
+  /** Last auto pick of this session, so the next one can keep its prompt cache. */
+  autoState?: AutoState;
+}): Promise<{ interrupted: boolean }> {
   let turnModel = options.model;
   let turnNote: string | undefined;
+  let autoPick: AutoPick | undefined;
   if (isAutoModel(options.model)) {
-    const routed = await assessMessageComplexity(options.input);
-    turnModel = routed.model;
-    process.stdout.write(`\n${formatJevModelPick(turnModel, routed.reason)}\n`);
+    const fresh = await assessMessageComplexity(options.input, options.model.provider);
+    const previous = options.history.length > 0 ? (options.autoState?.last ?? null) : null;
+    autoPick = stickToPrevious(previous, fresh, {
+      tokens: estimateContextTokens(options.history),
+      now: Date.now(),
+    });
+    turnModel = autoPick.model;
+    process.stdout.write(`\n${formatAutoPick(autoPick)}\n`);
     turnNote = `jev → ${turnModel.label}`;
+    const baseline = autoTiers(options.model.provider).standard;
+    options.usage.setAutoRoute({
+      label: turnModel.label,
+      detail: autoPick.benchmark ? `índice ${autoPick.benchmark.intelligence.toFixed(1)}` : undefined,
+      baseline: { model: baseline.id, label: baseline.label },
+    });
+  } else {
+    options.usage.setAutoRoute(null);
   }
 
   const turn = await runTurn(
@@ -286,17 +503,61 @@ async function runUserTurn(options: {
     turnModel,
     options.checkpoints,
     options.usage,
-    { turnNote, mode: options.mode, registry: options.registry },
+    {
+      turnNote,
+      mode: options.mode,
+      registry: options.registry,
+      signal: options.signal,
+    },
   );
 
-  await maybeProposeAutoMemory(
-    options.input,
-    turn.rememberUserCalled,
-    turnModel,
-    options.ask,
-  );
+  if (autoPick && options.autoState) options.autoState.last = { pick: autoPick, at: Date.now() };
+  if (turn.interrupted) {
+    console.log(dim("  turno cancelado; la sesión sigue."));
+  } else {
+    await maybeProposeAutoMemory(
+      options.input,
+      turn.rememberUserCalled,
+      turnModel,
+      options.ask,
+    );
+  }
   console.log(dim(options.usage.turnLine()));
   console.log("");
+  return { interrupted: turn.interrupted };
+}
+
+/** rl.close() does not always settle a pending question, so closing also resolves it. */
+function questionOrClose(rl: Interface, prompt: string): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const onClose = () => resolve(null);
+    rl.once("close", onClose);
+    rl.question(prompt).then(
+      (line) => {
+        rl.off("close", onClose);
+        resolve(line);
+      },
+      (error: unknown) => {
+        rl.off("close", onClose);
+        reject(error);
+      },
+    );
+  });
+}
+
+function questionInTurn(
+  rl: Interface,
+  interrupter: TurnInterrupter,
+): (prompt: string) => Promise<string> {
+  return async (prompt) => {
+    const signal = interrupter.signal();
+    try {
+      return await rl.question(prompt, signal ? { signal } : {});
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return "n";
+    }
+  };
 }
 
 function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime): void {
@@ -311,11 +572,13 @@ function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime
     ),
   );
   if (isAutoModel(model)) {
-    console.log(
-      dim(
-        `   modelo: auto · ${jevEnabled() ? "Jev elige Haiku/Sonnet/Opus en cada mensaje" : "sin Jev → Sonnet 4.5 por turno"}`,
-      ),
-    );
+    const via = model.provider === "openrouter" ? " vía OpenRouter" : "";
+    const how = !jevEnabled()
+      ? "sin key de Jev usa Sonnet siempre (/setup para añadirla)"
+      : benchmarksEnabled()
+        ? `Jev mide la dificultad y elige el modelo más barato que la cumple · ${BENCHMARK_ATTRIBUTION}`
+        : `Jev elige Haiku, Sonnet u Opus${via} en cada mensaje`;
+    console.log(dim(`   modelo: auto · ${how}`));
   } else {
     console.log(dim(`   modelo: ${formatModelLine(model)}`));
   }
@@ -330,7 +593,7 @@ function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime
   );
   console.log(
     dim(
-      "   /memory /projects /sessions /new /mcp /mode · /model · /login · /undo · /usage · /exit",
+      "   /model elige modelo (OpenRouter incluido) · /setup keys · /memory /sessions /new /mcp /mode · /undo · /usage · /exit",
     ),
   );
   console.log("");
@@ -349,6 +612,36 @@ async function main(): Promise<void> {
   if (cli.command === "sessions") {
     console.log(`\n${formatSessionsList(process.cwd())}\n`);
     return;
+  }
+
+  if (cli.command === "models") {
+    await printOpenRouterSearch(cli.query ?? "");
+    return;
+  }
+
+  const interactive = Boolean(stdin.isTTY && stdout.isTTY);
+  if (cli.command === "setup") {
+    if (!interactive) {
+      console.error("quillami setup necesita una terminal interactiva.");
+      process.exit(1);
+    }
+    await runSetup(startupIO(), { current: defaultModel(), pickModel: true });
+    console.log(dim("\n   Listo. Corre quillami para empezar.\n"));
+    return;
+  }
+
+  if (
+    interactive &&
+    cli.command === "chat" &&
+    !cli.prompt &&
+    (!onboardingDone() || !anyProviderKey())
+  ) {
+    await runSetup(startupIO(), { pickModel: !cli.model });
+    if (!anyProviderKey()) {
+      console.error("\nSin una key de modelo no puedo arrancar. Corre quillami setup cuando la tengas.");
+      process.exit(1);
+    }
+    console.log("");
   }
 
   const mcpNames = enabledMcpServerNames();
@@ -383,19 +676,14 @@ async function main(): Promise<void> {
     let sessionId = sessionBoot.sessionId;
     const history = sessionBoot.history;
 
-    if (!cli.prompt && !anyProviderKey() && !cli.model) {
-      const picked = await pickInitialProvider();
-      if (!picked) {
-        console.error("No elegiste proveedor. Salgo.");
-        process.exit(1);
-      }
-      model = modelForProvider(picked);
-    }
-
     if (!(await ensureKeyForModel(model))) {
       console.error(`Necesitas ${keyEnvFor(model.provider)} para usar ${model.label}.`);
       process.exit(1);
     }
+
+    const checked = await checkOpenRouterModel(model);
+    if (!checked.ok) process.exit(1);
+    model = checked.model;
 
     ensureTemplates();
     touchProjectRegistry(process.cwd());
@@ -415,69 +703,63 @@ async function main(): Promise<void> {
       const rlOne = stdin.isTTY
         ? createInterface({ input: stdin, output: stdout })
         : null;
-      const gate = makeGate(async (prompt) => {
-        if (rlOne) {
-          try {
-            return await rlOne.question(prompt);
-          } catch {
-            return "n";
-          }
-        }
-        return "n";
-      });
+      const interrupter = createTurnInterrupter({ rl: rlOne });
+      const ask = rlOne
+        ? questionInTurn(rlOne, interrupter)
+        : async () => "n";
+      const gate = makeGate(ask);
       const checkpoints = createCheckpointStore();
       const usage = createUsageLedger();
       try {
-        await runUserTurn({
-          input: cli.prompt,
-          history,
-          model,
-          mode: currentMode,
-          gate,
-          checkpoints,
-          usage,
-          registry,
-          ask: async (prompt) => {
-            if (!rlOne) return "n";
-            try {
-              return await rlOne.question(prompt);
-            } catch {
-              return "n";
-            }
-          },
-        });
+        const result = await interrupter.run((signal) =>
+          runUserTurn({
+            input: cli.prompt as string,
+            history,
+            model,
+            mode: currentMode,
+            gate,
+            checkpoints,
+            usage,
+            registry,
+            ask,
+            signal,
+          }),
+        );
         persistSession(sessionId, model, history, cli.prompt);
-        process.exit(0);
+        process.exit(!result || result.interrupted ? 130 : 0);
       } catch (error) {
         console.error(error instanceof Error ? error.message : error);
         process.exit(1);
       } finally {
+        interrupter.dispose();
         rlOne?.close();
       }
     }
 
+    if (isAutoModel(model) && benchmarksEnabled() && jevEnabled()) {
+      void Promise.all([loadOpenRouterCatalog(), loadBenchmarks()]);
+    }
     printStartupBanner(model, currentMode, mcp);
     if (history.length > 0) {
       console.log(dim(`   sesión: ${sessionId} (${history.length} mensajes cargados)\n`));
     }
 
     const rl = createInterface({ input: stdin, output: stdout });
+    const interrupter = createTurnInterrupter({ rl });
+    const ask = questionInTurn(rl, interrupter);
     const checkpoints = createCheckpointStore();
     const usage = createUsageLedger();
-    const gate = makeGate(async (prompt) => {
-      try {
-        return await rl.question(prompt);
-      } catch {
-        return "n";
-      }
-    });
+    const gate = makeGate(ask);
+    const autoState: AutoState = { last: null };
 
     try {
       while (true) {
         let input: string;
         try {
           if (stdin.readableEnded) break;
-          input = (await rl.question(promptPrefix(currentMode))).trim();
+          const line = await questionOrClose(rl, promptPrefix(currentMode));
+          if (line === null) break;
+          input = line.trim();
         } catch {
           break;
         }
@@ -503,29 +785,28 @@ async function main(): Promise<void> {
         if (slash.handled) continue;
 
         try {
-          await runUserTurn({
-            input,
-            history,
-            model,
-            mode: currentMode,
-            gate,
-            checkpoints,
-            usage,
-            registry,
-            ask: async (prompt) => {
-              try {
-                return await rl.question(prompt);
-              } catch {
-                return "n";
-              }
-            },
-          });
+          await interrupter.run((signal) =>
+            runUserTurn({
+              input,
+              history,
+              model,
+              mode: currentMode,
+              gate,
+              checkpoints,
+              usage,
+              registry,
+              ask,
+              signal,
+              autoState,
+            }),
+          );
           persistSession(sessionId, model, history, input);
         } catch (error) {
           console.error(error instanceof Error ? error.message : error);
         }
       }
     } finally {
+      interrupter.dispose();
       rl.close();
     }
   } finally {

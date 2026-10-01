@@ -15,3 +15,9 @@ export function configDir(): string {
 export function legacyConfigDir(): string {
   return path.join(homedir(), LEGACY_CONFIG_DIR_NAME);
 }
+
+/** `/Users/me/.quillami/.env` → `~/.quillami/.env`, for messages. */
+export function displayPath(file: string): string {
+  const home = homedir();
+  return file === home || file.startsWith(home + path.sep) ? `~${file.slice(home.length)}` : file;
+}

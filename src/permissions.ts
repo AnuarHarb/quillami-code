@@ -8,6 +8,8 @@ import {
   type RiskPolicyResult,
 } from "./decisions.js";
 import { previewChange } from "./diff.js";
+import { formatDuration } from "./liveOutput.js";
+import { BASH_DEFAULT_TIMEOUT_S, bashTimeoutSeconds } from "./tools.js";
 import type { AgentMode } from "./mode.js";
 import { isPlanBlockedTool } from "./toolRegistry.js";
 
@@ -198,7 +200,11 @@ function describeAction(
   let base = "";
 
   if (name === "bash") {
-    base = "Esto corre en tu máquina.";
+    const timeout = bashTimeoutSeconds(args);
+    base =
+      timeout === BASH_DEFAULT_TIMEOUT_S
+        ? "Esto corre en tu máquina."
+        : `Esto corre en tu máquina · hasta ${formatDuration(timeout * 1000)}.`;
   } else if (name === "web_fetch") {
     base = `Descargo ${stringArg(args.url) || "URL"} · puede salir data del repo`;
   } else if (name === "write") {

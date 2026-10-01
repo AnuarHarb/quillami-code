@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { executeTool } from "../src/tools.ts";
+import { bashTimeoutSeconds, executeBuiltinTool, executeTool } from "../src/tools.ts";
 import { withWorkspace } from "./workspace.ts";
 
 describe("tools", () => {
@@ -74,6 +74,107 @@ describe("tools", () => {
       const files = await executeTool("glob", { pattern: "**/*.ts" });
       assert.match(files, /src\/app\.ts/);
       assert.doesNotMatch(files, /node_modules/);
+    });
+  });
+
+  it("pages read with offset and limit", async () => {
+    await withWorkspace(async () => {
+      const lines = Array.from({ length: 10 }, (_, i) => `linea ${i + 1}`).join("\n");
+      await writeFile("big.txt", `${lines}\n`);
+
+      const page = await executeTool("read", { path: "big.txt", offset: 4, limit: 3 });
+      assert.match(page, /^ {3}4\|linea 4\n {3}5\|linea 5\n {3}6\|linea 6/);
+      assert.doesNotMatch(page, /linea 7/);
+      assert.match(page, /lines 4-6 of 10; call read with offset=7 to continue/);
+
+      const tail = await executeTool("read", { path: "big.txt", offset: 9 });
+      assert.match(tail, /lines 9-10 of 10\)$/);
+
+      const whole = await executeTool("read", { path: "big.txt" });
+      assert.doesNotMatch(whole, /lines \d/);
+
+      await assert.rejects(
+        () => executeTool("read", { path: "big.txt", offset: 50 }),
+        /past the end/,
+      );
+    });
+  });
+
+  it("cuts very long lines in read", async () => {
+    await withWorkspace(async () => {
+      await writeFile("min.js", "x".repeat(5_000));
+      const out = await executeTool("read", { path: "min.js" });
+      assert.match(out, /line cut, 5000 characters/);
+      assert.ok(out.length < 2_200);
+    });
+  });
+
+  it("keeps the head and tail of huge bash output", async () => {
+    await withWorkspace(async () => {
+      const out = await executeTool("bash", {
+        command: "echo PRIMERA; seq 1 50000; echo ULTIMA",
+      });
+      assert.match(out, /PRIMERA/);
+      assert.match(out, /ULTIMA/);
+      assert.match(out, /omitted \d+ characters/);
+      assert.ok(out.length < 13_000);
+    });
+  });
+
+  it("gives bash an empty stdin instead of hanging", async () => {
+    await withWorkspace(async () => {
+      const started = Date.now();
+      const out = await executeTool("bash", { command: "cat; echo fin" });
+      assert.match(out, /fin/);
+      assert.ok(Date.now() - started < 5_000);
+    });
+  });
+
+  it("cancelling bash kills the whole process group", async () => {
+    await withWorkspace(async () => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 300);
+      const started = Date.now();
+      const out = await executeBuiltinTool(
+        "bash",
+        { command: "sleep 30 & echo $! > bg.pid; wait" },
+        { signal: controller.signal },
+      );
+      assert.ok(Date.now() - started < 5_000);
+      assert.match(out, /the user cancelled the turn/);
+
+      const pid = Number((await readFile("bg.pid", "utf8")).trim());
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.throws(() => process.kill(pid, 0), /ESRCH/);
+    });
+  });
+
+  it("honors a per-call bash timeout and clamps it", async () => {
+    await withWorkspace(async () => {
+      const started = Date.now();
+      const out = await executeTool("bash", { command: "sleep 10", timeout_seconds: 1 });
+      assert.ok(Date.now() - started < 5_000);
+      assert.match(out, /stopped after 1s timeout; retry with a higher timeout_seconds/);
+
+      assert.equal(bashTimeoutSeconds({}), 120);
+      assert.equal(bashTimeoutSeconds({ timeout_seconds: 600 }), 600);
+      assert.equal(bashTimeoutSeconds({ timeout_seconds: 99_999 }), 1800);
+      assert.equal(bashTimeoutSeconds({ timeout_seconds: 0 }), 120);
+    });
+  });
+
+  it("streams bash output while it runs", async () => {
+    await withWorkspace(async () => {
+      const chunks: string[] = [];
+      const out = await executeBuiltinTool(
+        "bash",
+        { command: "echo uno; echo dos >&2" },
+        { onOutput: (chunk) => chunks.push(chunk) },
+      );
+      assert.match(chunks.join(""), /uno/);
+      assert.match(chunks.join(""), /dos/);
+      assert.match(out, /stdout:\nuno/);
+      assert.match(out, /stderr:\ndos/);
     });
   });
 

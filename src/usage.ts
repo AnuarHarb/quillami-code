@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { BENCHMARK_ATTRIBUTION } from "./benchmarks.js";
 import { configDir } from "./config.js";
 import { formatJevSessionUsage } from "./jev.js";
 import { priceForModel } from "./models.js";
@@ -13,8 +14,17 @@ export type UsageTotals = {
   usd: number;
 };
 
+/** What `auto` picked for the coming turn, and the model it is measured against. */
+export type AutoRoute = {
+  label: string;
+  detail?: string;
+  baseline: { model: string; label: string };
+};
+
 export type UsageLedger = {
   beginTurn(options?: { turnNote?: string }): void;
+  /** Call before each turn; null for turns on a fixed model. */
+  setAutoRoute(route: AutoRoute | null): void;
   record(model: string, usage: unknown): void;
   turnLine(): string;
   report(): string;
@@ -38,6 +48,9 @@ export function createUsageLedger(options?: {
   let session = empty();
   let turn = empty();
   let turnNote: string | undefined;
+  let route: AutoRoute | null = null;
+  const routes = new Map<string, { turns: number; detail?: string }>();
+  const auto = { usd: 0, baselineUsd: 0, baselineLabel: "" };
 
   return {
     beginTurn(options) {
@@ -45,12 +58,24 @@ export function createUsageLedger(options?: {
       turnNote = options?.turnNote;
     },
 
+    setAutoRoute(next) {
+      route = next;
+      if (!next) return;
+      const seen = routes.get(next.label);
+      routes.set(next.label, { turns: (seen?.turns ?? 0) + 1, detail: next.detail ?? seen?.detail });
+      auto.baselineLabel = next.baseline.label;
+    },
+
     record(model, usage) {
       const parsed = readApiUsage(usage);
-      const usd = costUsd(model, parsed);
+      const usd = reportedCostUsd(usage) ?? costUsd(model, parsed);
       add(turn, parsed, usd);
       add(session, parsed, usd);
       add(lifetime, parsed, usd);
+      if (route) {
+        auto.usd += usd;
+        auto.baselineUsd += costUsd(route.baseline.model, parsed);
+      }
       if (persist) {
         saveLifetime(file, lifetime);
       }
@@ -71,11 +96,33 @@ export function createUsageLedger(options?: {
       const row = (label: string, totals: UsageTotals) =>
         `  ${label.padEnd(8)} ${formatTokenCount(promptTokens(totals))} in${cacheNote(totals)} / ${formatTokenCount(totals.output)} out  ${formatUsd(totals.usd)}`;
       const lines = [row("turno", turn), row("sesión", session), row("total", lifetime)];
+      if (routes.size > 0) lines.push(...formatAutoReport(routes, auto));
       const jev = formatJevSessionUsage();
       if (jev) lines.push(jev);
       return lines.join("\n");
     },
   };
+}
+
+function formatAutoReport(
+  routes: Map<string, { turns: number; detail?: string }>,
+  auto: { usd: number; baselineUsd: number; baselineLabel: string },
+): string[] {
+  const picks = [...routes]
+    .map(([label, { turns, detail }]) => `${label} ×${turns}${detail ? ` (${detail})` : ""}`)
+    .join(" · ");
+  const lines = [`  ${"auto".padEnd(8)} ${picks}`];
+  if (auto.baselineUsd > 0) {
+    const change = Math.round((1 - auto.usd / auto.baselineUsd) * 100);
+    const verdict = change >= 0 ? `ahorro ${change}%` : `${-change}% más caro`;
+    lines.push(
+      `  ${"".padEnd(8)} ${formatUsd(auto.usd)} vs ${formatUsd(auto.baselineUsd)} con ${auto.baselineLabel} siempre (${verdict})`,
+    );
+  }
+  if ([...routes.values()].some((entry) => entry.detail)) {
+    lines.push(`  ${"".padEnd(8)} ${BENCHMARK_ATTRIBUTION}`);
+  }
+  return lines;
 }
 
 export function readApiUsage(usage: unknown): Omit<UsageTotals, "usd"> {
@@ -91,18 +138,27 @@ export function readApiUsage(usage: unknown): Omit<UsageTotals, "usd"> {
   };
 }
 
+/** OpenRouter bills in `usage.cost` (USD); it beats any estimate, and routers have no list price. */
+export function reportedCostUsd(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const cost = (usage as Record<string, unknown>).cost;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+}
+
 const CACHE_WRITE_MULTIPLIER = 1.25;
 const CACHE_READ_MULTIPLIER = 0.1;
 
 export function costUsd(model: string, usage: Omit<UsageTotals, "usd">): number {
   const price = priceForModel(model);
-  const billedInput =
-    usage.input +
-    usage.cacheWrite * CACHE_WRITE_MULTIPLIER +
-    usage.cacheRead * CACHE_READ_MULTIPLIER;
+  const cacheWrite =
+    price.cacheWritePerMillion ?? price.inputPerMillion * CACHE_WRITE_MULTIPLIER;
+  const cacheRead = price.cacheReadPerMillion ?? price.inputPerMillion * CACHE_READ_MULTIPLIER;
   return (
-    (billedInput / 1_000_000) * price.inputPerMillion +
-    (usage.output / 1_000_000) * price.outputPerMillion
+    (usage.input * price.inputPerMillion +
+      usage.cacheWrite * cacheWrite +
+      usage.cacheRead * cacheRead +
+      usage.output * price.outputPerMillion) /
+    1_000_000
   );
 }
 

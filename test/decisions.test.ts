@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   applyRiskPolicy,
+  AUTO_CACHE_TTL_MS,
+  formatAutoPick,
   looksLikeSecret,
   matchesDenylist,
   pickModelForComplexity,
   shouldProposeAutoMemory,
+  stickToPrevious,
+  type AutoPick,
 } from "../src/decisions.ts";
+import type { ModelChoice } from "../src/models.ts";
 
 describe("decisions risk policy", () => {
   const workspace = "/tmp/ws";
@@ -72,6 +77,58 @@ describe("decisions router", () => {
       probabilities: {} as never,
     });
     assert.equal(picked.model.alias, "haiku");
+  });
+
+  it("routes the same tiers through OpenRouter", () => {
+    const answer = (score: number) => ({
+      type: "score" as const,
+      score,
+      confidence: 0.9,
+      legend: {} as never,
+      probabilities: {} as never,
+    });
+    assert.equal(pickModelForComplexity(answer(0.2), "openrouter").model.id, "~anthropic/claude-haiku-latest");
+    assert.equal(pickModelForComplexity(answer(1), "openrouter").model.id, "~anthropic/claude-sonnet-latest");
+    assert.equal(pickModelForComplexity(answer(2), "openrouter").model.id, "~anthropic/claude-opus-latest");
+    assert.equal(pickModelForComplexity(answer(2), "openrouter").model.provider, "openrouter");
+  });
+});
+
+describe("decisions sticky auto", () => {
+  const model = (id: string, input: number, output: number, cacheRead?: number): ModelChoice => ({
+    id,
+    alias: id,
+    label: id,
+    provider: "openrouter",
+    blurb: "",
+    price: { inputPerMillion: input, outputPerMillion: output, cacheReadPerMillion: cacheRead },
+  });
+  const sonnet: AutoPick = { model: model("sonnet", 2, 10, 0.2), tier: "heavy", difficulty: "difícil" };
+  const flash: AutoPick = { model: model("flash", 0.03, 0.5), tier: "light", difficulty: "trivial" };
+  const pricey: AutoPick = { model: model("mid", 1.5, 6), tier: "light", difficulty: "trivial" };
+  const opus: AutoPick = { model: model("opus", 4, 20), tier: "heavy", difficulty: "difícil" };
+  const now = 1_000_000;
+
+  it("keeps the cached model when switching down would cost more", () => {
+    const kept = stickToPrevious({ pick: sonnet, at: now - 1000 }, pricey, { tokens: 50_000, now });
+    assert.equal(kept.model.id, "sonnet");
+    assert.equal(kept.kept, true);
+    assert.equal(kept.difficulty, "trivial");
+    assert.equal(formatAutoPick(kept), "· jev · trivial → sigue con sonnet (su caché sale más barato)");
+  });
+
+  it("switches down when the new model is cheaper even without cache", () => {
+    const next = stickToPrevious({ pick: sonnet, at: now - 1000 }, flash, { tokens: 50_000, now });
+    assert.equal(next.model.id, "flash");
+    assert.equal(next.kept, undefined);
+  });
+
+  it("always switches when the message is harder or the cache expired", () => {
+    const easy: AutoPick = { ...pricey, model: model("cheap", 0.01, 0.01, 0.001) };
+    assert.equal(stickToPrevious({ pick: easy, at: now - 1000 }, opus, { tokens: 50_000, now }).model.id, "opus");
+    const stale = now - AUTO_CACHE_TTL_MS - 1;
+    assert.equal(stickToPrevious({ pick: sonnet, at: stale }, pricey, { tokens: 50_000, now }).model.id, "mid");
+    assert.equal(stickToPrevious(null, pricey, { tokens: 50_000, now }).model.id, "mid");
   });
 });
 

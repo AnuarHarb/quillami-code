@@ -7,6 +7,11 @@ describe("cli", () => {
     assert.deepEqual(parseArgs(["doctor"]).command, "doctor");
     assert.deepEqual(parseArgs(["sessions"]).command, "sessions");
     assert.deepEqual(parseArgs(["mcp"]).command, "mcp");
+    const models = parseArgs(["models", "qwen", "coder"]);
+    assert.equal(models.command, "models");
+    assert.equal(models.query, "qwen coder");
+    assert.equal(parseArgs(["models"]).query, undefined);
+    assert.equal(parseArgs(["setup"]).command, "setup");
   });
 
   it("parses one-shot prompt and flags", () => {

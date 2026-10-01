@@ -7,18 +7,29 @@ Agente de código en TypeScript. Los usuarios lo instalan con `npm install -g qu
 - Loop: `src/agent/loop.ts` · tools: `src/toolRegistry.ts`, `src/tools.ts`
 - Sesiones: `src/sessions.ts` — `~/.quillami/sessions/*.json`, `-c`, `--resume`, `/sessions`, `/new`
 - MCP: `src/mcp.ts` — `~/.quillami/mcp.json`, tools `mcp__servidor__tool`, `/mcp`, `quillami mcp`
-- Web: `src/webFetch.ts` — tool `web_fetch` (solo URLs públicas)
+- Web: `src/webFetch.ts` — tool `web_fetch` (solo URLs públicas; valida cada redirección y la IP con la que conecta)
+- Búsqueda: `src/ripgrep.ts` — `grep` usa `rg` si está; si no, búsqueda propia en `src/tools.ts`. `QUILLAMI_RG=off` la fuerza
+- Salidas: `src/truncate.ts` — recorte cabeza/cola (30k por resultado de tool); `src/liveOutput.ts` — últimas líneas de `bash` en vivo
+- Ctrl+C: `src/interrupt.ts` — cancela el turno con un AbortSignal que llega al stream, `bash`, `web_fetch` y MCP
+- Diff: `src/diff.ts` — diff de `write`/`edit` en el prompt de permiso
+- Caché: `src/agent/cache.ts` — `cache_control` en tools, system y último mensaje (sin tocar el historial)
 - Modos: `src/mode.ts` — agent / plan / yolo (`--plan`, `--yolo`, `/mode`)
 - Doctor: `src/doctor.ts` — `quillami doctor`
 - Compactación: `src/agent/compact.ts` — si el historial pasa ~20k tokens, resume lo viejo y deja ~7k de cola
 - Tokens: `src/usage.ts` — gasto por turno/sesión/total; `/usage`
-- Modelos: `src/models.ts` — Anthropic + MiniMax; `quillami --model minimax` o `/model`
-- Proveedores: `src/providers.ts` — cliente Anthropic SDK con baseURL de MiniMax
-- Keys: `src/auth.ts` — prompt oculto, guarda en `~/.quillami/.env`; `/login`, `/login typesafe`
+- Modelos: `src/models.ts` — Anthropic y OpenRouter; cualquier id `vendor/modelo` va a OpenRouter; `quillami --model <alias>` o `/model`. MiniMax directo sigue funcionando con `MINIMAX_API_KEY` y `-m minimax`, pero no aparece en listas, onboarding ni docs
+- Proveedores: `src/providers.ts` — cliente Anthropic SDK por proveedor; `apiKey` y `authToken` siempre explícitos para que el SDK no mande la key de Anthropic a otro proveedor
+- OpenRouter: `src/openrouter.ts` — catálogo público cacheado 24 h en `~/.quillami/openrouter-models.json`, búsqueda (`/models`, `quillami models`) y precios por modelo
+- `auto`: Jev local (`TYPESAFE_API_KEY`) puntúa la complejidad y `pickModelForComplexity` elige Haiku/Sonnet/Opus; `autoTiers` usa Claude directo con `ANTHROPIC_API_KEY` o los alias `~anthropic/claude-*-latest` con solo OpenRouter. Jev Router (`typesafe/jev-router`) es solo un modelo fijo: no acepta criterios.
+- Con `ARTIFICIAL_ANALYSIS_API_KEY` + OpenRouter (`benchmarks.ts`), `complexityTier` da light/standard/heavy y `pickByBenchmark` elige el modelo de OpenRouter más barato (3:1 entrada:salida) cuyo índice de inteligencia supera `BENCHMARK_BARS` × el mejor del pool. Los slugs de AA usan guiones y un sufijo por esfuerzo (`gpt-6-1-sol-high`); `matchBenchmark` los empareja con ids de OpenRouter. Caché diaria en `~/.quillami/artificial-analysis.json`; si la API falla, `loadBenchmarks` usa lo más reciente entre esa caché y `BENCHMARK_SNAPSHOT` (`src/benchmarkSnapshot.ts`, generado con `npm run benchmarks:snapshot`: solo los modelos que emparejan con OpenRouter; no editar a mano). Atribución obligatoria (`BENCHMARK_ATTRIBUTION`). `QUILLAMI_AUTO_VENDORS` filtra el pool por vendor.
+- `stickToPrevious` (decisions.ts) mantiene el modelo del turno anterior si la dificultad no subió y leer de su caché cuesta menos que mandar el contexto sin caché al nuevo; `AUTO_CACHE_TTL_MS` (5 min). `usage.setAutoRoute` lleva por sesión los modelos de auto y el costo contra el tier estándar (Sonnet) para `/usage`. El loop lee de los eventos del stream el modelo servido (`message_start`) y `usage.cost` (`message_delta`), porque el SDK los descarta al armar el mensaje
+- Selector: `src/modelPicker.ts` — `/model` y `/models`: lista numerada (directos + alias `~…-latest` de OpenRouter), texto libre busca en el catálogo
+- Onboarding: `src/onboarding.ts` — primera vez (sin `~/.quillami/onboarding.json` o sin key de modelo), `quillami setup`, `/setup`; verifica keys de Anthropic y OpenRouter antes de guardar
+- Keys: `src/auth.ts` — prompt oculto, guarda en `~/.quillami/.env`; `/login`, `/login openrouter`, `/login typesafe`
 - Jev: `src/jev.ts` — cliente TypeSafe (`TYPESAFE_API_KEY`), timeout ~4s, fallback silencioso
 - Decisiones: `src/decisions.ts` — riesgo de permisos, router `auto`, memoria al fin del turno
 - Memoria global: `src/userMemory.ts` — `~/.quillami/soul.md`, `user.md`, `behaviors.md`, `projects.json`; `/memory`, `/projects`
-- Permisos: `src/permissions.ts` — write/edit/bash/web_fetch/MCP/remember_user; s/n/a; yolo y plan
+- Permisos: `src/permissions.ts` — write/edit/bash/web_fetch/MCP/remember_user; s/n/a (la `a` es por tool, y por servidor en MCP); yolo y plan
 - Checkpoints: `src/checkpoint.ts` — foto de `write`/`edit` por turno; `/undo` restaura. `bash` no se deshace.
 - Banner: `src/banner.ts`
 - Spinner: `src/spinner.ts`

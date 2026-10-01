@@ -14,6 +14,7 @@ export async function compactIfNeeded(
   model: string,
   history: Anthropic.MessageParam[],
   usage?: UsageLedger,
+  signal?: AbortSignal,
 ): Promise<void> {
   const before = totalTokens(history);
   if (before < COMPACT_AFTER_TOKENS) {
@@ -30,7 +31,7 @@ export async function compactIfNeeded(
   const stopSpinner = startSpinner("Compactando el historial…");
 
   try {
-    const summary = await summarizePrefix(client, model, prefix, usage);
+    const summary = await summarizePrefix(client, model, prefix, usage, signal);
     history.splice(
       0,
       history.length,
@@ -80,19 +81,23 @@ async function summarizePrefix(
   model: string,
   prefix: Anthropic.MessageParam[],
   usage?: UsageLedger,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const response = await client.messages.create({
-    model,
-    max_tokens: 800,
-    system:
-      "Summarize this coding-agent conversation for a later session. Keep user goals, files touched, decisions, errors, and what is still pending. Be concise. Use the user's language.",
-    messages: [
-      {
-        role: "user",
-        content: toTranscript(prefix),
-      },
-    ],
-  });
+  const response = await client.messages.create(
+    {
+      model,
+      max_tokens: 800,
+      system:
+        "Summarize this coding-agent conversation for a later session. Keep user goals, files touched, decisions, errors, and what is still pending. Be concise. Use the user's language.",
+      messages: [
+        {
+          role: "user",
+          content: toTranscript(prefix),
+        },
+      ],
+    },
+    { signal },
+  );
 
   usage?.record(model, response.usage);
 

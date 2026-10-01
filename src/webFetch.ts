@@ -17,6 +17,7 @@ export type WebFetchOptions = {
   fetchImpl?: typeof fetch;
   lookup?: LookupFn;
   maxChars?: number;
+  signal?: AbortSignal;
 };
 
 const defaultLookup: LookupFn = async (hostname) => {
@@ -34,6 +35,9 @@ export async function fetchPublicUrl(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const signal = options?.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller.signal;
 
   let url = validatePublicUrl(rawUrl);
   let response: Response;
@@ -42,7 +46,7 @@ export async function fetchPublicUrl(
       await assertResolvesPublic(url.hostname, lookup);
       response = await fetchImpl(url.toString(), {
         redirect: "manual",
-        signal: controller.signal,
+        signal,
         headers: { Accept: "text/html,application/json,text/plain,*/*" },
       });
 

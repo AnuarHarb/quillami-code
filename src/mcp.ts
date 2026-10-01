@@ -29,7 +29,7 @@ export type McpToolBinding = {
   serverName: string;
   toolName: string;
   definition: Anthropic.Tool;
-  call: (input: Record<string, unknown>) => Promise<string>;
+  call: (input: Record<string, unknown>, signal?: AbortSignal) => Promise<string>;
 };
 
 export type McpRuntime = {
@@ -139,11 +139,12 @@ export async function connectMcpServers(
                 properties: {},
               }) as Anthropic.Tool.InputSchema,
             },
-            call: async (input) => {
-              const result = await connected.client.callTool({
-                name: tool.name,
-                arguments: input,
-              });
+            call: async (input, signal) => {
+              const result = await connected.client.callTool(
+                { name: tool.name, arguments: input },
+                undefined,
+                { signal },
+              );
               return formatToolResult(result);
             },
           });

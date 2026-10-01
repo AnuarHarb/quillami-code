@@ -1,7 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentMode } from "./mode.js";
 import type { McpToolBinding } from "./mcp.js";
-import { BUILTIN_TOOL_DEFINITIONS, executeBuiltinTool } from "./tools.js";
+import {
+  BUILTIN_TOOL_DEFINITIONS,
+  executeBuiltinTool,
+  type ToolContext,
+} from "./tools.js";
 
 const PLAN_BLOCKED = new Set([
   "write",
@@ -13,7 +17,7 @@ const PLAN_BLOCKED = new Set([
 
 export type ToolRegistry = {
   definitions(mode: AgentMode): Anthropic.Tool[];
-  execute(name: string, input: unknown): Promise<string>;
+  execute(name: string, input: unknown, ctx?: ToolContext): Promise<string>;
 };
 
 export function createToolRegistry(options?: {
@@ -35,16 +39,16 @@ export function createToolRegistry(options?: {
       return [...builtins, ...mcpDefs];
     },
 
-    async execute(name, input) {
+    async execute(name, input, ctx) {
       const mcpTool = mcpByName.get(name);
       if (mcpTool) {
         const args =
           input && typeof input === "object"
             ? (input as Record<string, unknown>)
             : {};
-        return mcpTool.call(args);
+        return mcpTool.call(args, ctx?.signal);
       }
-      return executeBuiltinTool(name, input);
+      return executeBuiltinTool(name, input, ctx);
     },
   };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { formatTokenCount, formatUsd, estimateTokens } from "../src/tokens.ts";
-import { costUsd, createUsageLedger, readApiUsage } from "../src/usage.ts";
+import { costUsd, createUsageLedger, readApiUsage, reportedCostUsd } from "../src/usage.ts";
 
 describe("usage", () => {
   it("estimates tokens from characters, not words", () => {
@@ -45,6 +45,41 @@ describe("usage", () => {
       output_tokens: 100,
     });
     assert.match(ledger.turnLine(), /10k in \(90% de caché\)/);
+  });
+
+  it("bills the cost OpenRouter reports instead of estimating", () => {
+    const ledger = createUsageLedger({ persist: false });
+    ledger.beginTurn();
+    ledger.record("typesafe/jev-router", { input_tokens: 100, output_tokens: 10, cost: 0.42 });
+    assert.match(ledger.turnLine(), /\$0\.42 esta sesión/);
+    assert.equal(reportedCostUsd({ cost: -1 }), undefined);
+    assert.equal(reportedCostUsd({ input_tokens: 1 }), undefined);
+  });
+
+  it("reports what auto picked and how it compares with Sonnet", () => {
+    const ledger = createUsageLedger({ persist: false });
+    const baseline = { model: "claude-sonnet-4-5", label: "Sonnet 4.5" };
+    ledger.setAutoRoute({ label: "DeepSeek Flash", detail: "índice 39.5", baseline });
+    ledger.beginTurn();
+    ledger.record("deepseek/deepseek-flash", { input_tokens: 1_000_000, output_tokens: 0, cost: 0.03 });
+    ledger.setAutoRoute({ label: "DeepSeek Flash", detail: "índice 39.5", baseline });
+    ledger.beginTurn();
+    ledger.record("deepseek/deepseek-flash", { input_tokens: 1_000_000, output_tokens: 0, cost: 0.03 });
+    ledger.setAutoRoute(null);
+    ledger.beginTurn();
+    ledger.record("claude-haiku-4-5", { input_tokens: 1_000_000, output_tokens: 0 });
+
+    const report = ledger.report();
+    assert.match(report, /auto\s+DeepSeek Flash ×2 \(índice 39\.5\)/);
+    assert.match(report, /\$0\.06 vs \$6\.00 con Sonnet 4\.5 siempre \(ahorro 99%\)/);
+    assert.match(report, /benchmarks: Artificial Analysis/);
+  });
+
+  it("has no auto section without auto turns", () => {
+    const ledger = createUsageLedger({ persist: false });
+    ledger.beginTurn();
+    ledger.record("claude-haiku-4-5", { input_tokens: 10, output_tokens: 1 });
+    assert.doesNotMatch(ledger.report(), /auto/);
   });
 
   it("formats token and dollar amounts", () => {

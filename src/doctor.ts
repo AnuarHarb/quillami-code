@@ -1,15 +1,17 @@
 import { accessSync, constants, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { noul } from "@typesafe-ai/sdk";
+import { benchmarksEnabled } from "./benchmarks.js";
 import { askJev, jevEnabled } from "./jev.js";
 import { configDir } from "./config.js";
 import { hasKey } from "./auth.js";
 import { defaultModel } from "./models.js";
-import { createClient } from "./providers.js";
+import { anyProviderKey, createClient } from "./providers.js";
 import { connectMcpServers } from "./mcp.js";
 import { packageVersion } from "./version.js";
 
-export type DoctorLine = { label: string; ok: boolean; detail: string };
+/** `optional` lines that are not ok show as "--", not "fail". */
+export type DoctorLine = { label: string; ok: boolean; detail: string; optional?: boolean };
 
 export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: number }> {
   const lines: DoctorLine[] = [];
@@ -35,20 +37,36 @@ export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: numb
     detail: configOk ? configDir() : `cannot write ${configDir()}`,
   });
 
+  const modelKey = anyProviderKey();
+  lines.push({
+    label: "openrouter key",
+    ok: hasKey("openrouter"),
+    optional: modelKey,
+    detail: hasKey("openrouter") ? "present" : modelKey ? "optional OPENROUTER_API_KEY" : "missing OPENROUTER_API_KEY (or ANTHROPIC_API_KEY)",
+  });
   lines.push({
     label: "anthropic key",
     ok: hasKey("anthropic"),
-    detail: hasKey("anthropic") ? "present" : "missing ANTHROPIC_API_KEY",
+    optional: true,
+    detail: hasKey("anthropic") ? "present" : "optional ANTHROPIC_API_KEY",
   });
-  lines.push({
-    label: "minimax key",
-    ok: hasKey("minimax"),
-    detail: hasKey("minimax") ? "present" : "optional MINIMAX_API_KEY",
-  });
+  if (hasKey("minimax")) lines.push({ label: "minimax key", ok: true, detail: "present" });
   lines.push({
     label: "typesafe key",
     ok: jevEnabled(),
-    detail: jevEnabled() ? "present (Jev on)" : "optional TYPESAFE_API_KEY",
+    optional: true,
+    detail: jevEnabled() ? "present (Jev on)" : "optional TYPESAFE_API_KEY (auto, smart permissions)",
+  });
+  const aaKey = Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim());
+  lines.push({
+    label: "benchmarks key",
+    ok: aaKey,
+    optional: true,
+    detail: !aaKey
+      ? "optional ARTIFICIAL_ANALYSIS_API_KEY"
+      : benchmarksEnabled()
+        ? "present (auto picks by benchmark)"
+        : "present, needs OPENROUTER_API_KEY too",
   });
 
   lines.push({
@@ -68,7 +86,7 @@ export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: numb
     });
   }
 
-  if (hasKey("anthropic") || hasKey("minimax")) {
+  if (anyProviderKey()) {
     const model = defaultModel();
     try {
       const client = createClient(model);
@@ -134,6 +152,6 @@ export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: numb
 
 export function formatDoctorReport(lines: DoctorLine[]): string {
   return lines
-    .map((line) => `  ${line.ok ? "ok" : "fail"}  ${line.label}: ${line.detail}`)
+    .map((line) => `  ${(line.ok ? "ok" : line.optional ? "--" : "fail").padEnd(4)}  ${line.label}: ${line.detail}`)
     .join("\n");
 }

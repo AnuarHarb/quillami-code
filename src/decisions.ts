@@ -1,6 +1,16 @@
 import { noul, score, type ScoreResponse } from "@typesafe-ai/sdk";
-import { askJev } from "./jev.js";
-import { MODELS, type ModelChoice } from "./models.js";
+import {
+  autoVendors,
+  benchmarksEnabled,
+  buildBenchmarkPool,
+  loadBenchmarks,
+  pickByBenchmark,
+  type BenchmarkCandidate,
+  type BenchmarkTier,
+} from "./benchmarks.js";
+import { askJev, jevEnabled } from "./jev.js";
+import { autoTiers, resolveModel, type ModelChoice, type Provider } from "./models.js";
+import { formatPricePerMillion, loadOpenRouterCatalog } from "./openrouter.js";
 
 export type RiskInput = {
   tool: string;
@@ -49,6 +59,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bTYPESAFE_API_KEY\s*=/i,
   /\bANTHROPIC_API_KEY\s*=/i,
   /\bMINIMAX_API_KEY\s*=/i,
+  /\bOPENROUTER_API_KEY\s*=/i,
+  /\bARTIFICIAL_ANALYSIS_API_KEY\s*=/i,
+  /\bsk-or-v1-[a-f0-9]{20,}\b/i,
 ];
 
 export function riskQuestions() {
@@ -178,35 +191,99 @@ export function parseJevRisk(
   return { score: answer.score, confidence: answer.confidence };
 }
 
+export type AutoPick = {
+  model: ModelChoice;
+  tier: BenchmarkTier;
+  /** "trivial", "estándar", "difícil", "confianza baja" or "sin Jev". */
+  difficulty: string;
+  benchmark?: { intelligence: number; bar: number };
+  /** Stayed on the previous turn's model because its prompt cache made it cheaper. */
+  kept?: boolean;
+};
+
+export function complexityTier(
+  answer: ScoreResponse<typeof COMPLEXITY_CRITERIA> | undefined,
+): { tier: BenchmarkTier; difficulty: string } {
+  if (!answer) return { tier: "standard", difficulty: "sin Jev" };
+  if (answer.confidence < COMPLEXITY_MIN_CONFIDENCE) {
+    return { tier: "standard", difficulty: "confianza baja" };
+  }
+  if (answer.score < 0.75) return { tier: "light", difficulty: "trivial" };
+  if (answer.score < 1.75) return { tier: "standard", difficulty: "estándar" };
+  return { tier: "heavy", difficulty: "difícil" };
+}
+
 export function pickModelForComplexity(
   answer: ScoreResponse<typeof COMPLEXITY_CRITERIA> | undefined,
-): { model: ModelChoice; reason: string } {
-  const fallback =
-    MODELS.find((m) => m.id === "claude-sonnet-4-5") ?? MODELS[0];
-  const haiku = MODELS.find((m) => m.alias === "haiku") ?? fallback;
-  const sonnet = fallback;
-  const opus = MODELS.find((m) => m.alias === "opus") ?? sonnet;
+  provider: Provider = "anthropic",
+): AutoPick {
+  const { tier, difficulty } = complexityTier(answer);
+  return { model: autoTiers(provider)[tier], tier, difficulty };
+}
 
-  if (!answer || answer.confidence < COMPLEXITY_MIN_CONFIDENCE) {
-    return { model: sonnet, reason: "confianza baja o sin Jev → Sonnet" };
-  }
-
-  if (answer.score < 0.75) {
-    return {
-      model: haiku,
-      reason: `trivial, ${answer.confidence.toFixed(2)}`,
-    };
-  }
-  if (answer.score < 1.75) {
-    return {
-      model: sonnet,
-      reason: `estándar, ${answer.confidence.toFixed(2)}`,
-    };
-  }
+/** Cheapest benchmarked OpenRouter model that clears the tier's bar; null when there is no data. */
+export function pickModelByBenchmark(
+  tier: BenchmarkTier,
+  difficulty: string,
+  pool: BenchmarkCandidate[],
+): AutoPick | null {
+  const picked = pickByBenchmark(pool, tier);
+  if (!picked) return null;
+  const { candidate, bar } = picked;
+  const base = resolveModel(candidate.model.id);
+  if (!base) return null;
   return {
-    model: opus,
-    reason: `difícil, ${answer.confidence.toFixed(2)}`,
+    model: { ...base, label: shortModelName(candidate.model.name), price: candidate.model.price },
+    tier,
+    difficulty,
+    benchmark: { intelligence: candidate.intelligence, bar },
   };
+}
+
+const TIER_RANK: Record<BenchmarkTier, number> = { light: 0, standard: 1, heavy: 2 };
+/** Prompt caches expire after about five minutes; past that, switching loses nothing. */
+export const AUTO_CACHE_TTL_MS = 5 * 60 * 1000;
+const ESTIMATED_OUTPUT_TOKENS = 1_000;
+
+/**
+ * A harder message always gets the new pick. Otherwise the previous model
+ * stays when reading the context from its cache costs less than sending the
+ * whole context uncached to the new one.
+ */
+export function stickToPrevious(
+  previous: { pick: AutoPick; at: number } | null,
+  next: AutoPick,
+  context: { tokens: number; now: number },
+): AutoPick {
+  if (!previous || context.now - previous.at > AUTO_CACHE_TTL_MS) return next;
+  if (next.model.id === previous.pick.model.id) return next;
+  if (TIER_RANK[next.tier] > TIER_RANK[previous.pick.tier]) return next;
+  const old = previous.pick.model.price;
+  const keepCost =
+    context.tokens * (old.cacheReadPerMillion ?? old.inputPerMillion * 0.1) +
+    ESTIMATED_OUTPUT_TOKENS * old.outputPerMillion;
+  const switchCost =
+    context.tokens * next.model.price.inputPerMillion +
+    ESTIMATED_OUTPUT_TOKENS * next.model.price.outputPerMillion;
+  if (keepCost > switchCost) return next;
+  return { ...previous.pick, difficulty: next.difficulty, kept: true };
+}
+
+/** `· jev · trivial → DeepSeek V4.1 Flash · $0.03 / $0.50 por M` */
+export function formatAutoPick(pick: AutoPick): string {
+  const { inputPerMillion, outputPerMillion } = pick.model.price;
+  const price =
+    inputPerMillion > 0
+      ? ` · $${formatPricePerMillion(inputPerMillion)} / $${formatPricePerMillion(outputPerMillion)} por M`
+      : "";
+  return pick.kept
+    ? `· jev · ${pick.difficulty} → sigue con ${pick.model.label} (su caché sale más barato)`
+    : `· jev · ${pick.difficulty} → ${pick.model.label}${price}`;
+}
+
+/** OpenRouter names repeat the vendor: "DeepSeek: DeepSeek V4.1 Flash". */
+function shortModelName(name: string): string {
+  return name.replace(/^[^:]+:\s*/, "") || name;
 }
 
 export type MemoryNoulAnswers = {
@@ -261,11 +338,24 @@ export async function assessToolRisk(input: RiskInput): Promise<JevRiskAnswer | 
 
 export async function assessMessageComplexity(
   userMessage: string,
-): Promise<{ model: ModelChoice; reason: string }> {
-  const answers = await askJev(userMessage, complexityQuestions());
-  return pickModelForComplexity(
-    answers?.complexity as ScoreResponse<typeof COMPLEXITY_CRITERIA> | undefined,
-  );
+  provider: Provider = "anthropic",
+): Promise<AutoPick> {
+  const [answers, pool] = await Promise.all([
+    askJev(userMessage, complexityQuestions()),
+    benchmarksEnabled() && jevEnabled() ? loadBenchmarkPool() : Promise.resolve([]),
+  ]);
+  const answer = answers?.complexity as ScoreResponse<typeof COMPLEXITY_CRITERIA> | undefined;
+  if (answer && pool.length > 0) {
+    const { tier, difficulty } = complexityTier(answer);
+    const picked = pickModelByBenchmark(tier, difficulty, pool);
+    if (picked) return picked;
+  }
+  return pickModelForComplexity(answer, provider);
+}
+
+async function loadBenchmarkPool(): Promise<BenchmarkCandidate[]> {
+  const [catalog, benchmarks] = await Promise.all([loadOpenRouterCatalog(), loadBenchmarks()]);
+  return catalog && benchmarks ? buildBenchmarkPool(catalog, benchmarks, autoVendors()) : [];
 }
 
 export async function assessMemorySignals(userMessage: string): Promise<MemoryNoulAnswers | null> {
