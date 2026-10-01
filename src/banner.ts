@@ -6,7 +6,7 @@ const PHRASES = [
   "Vamo' a darle, que el código no se escribe solo.",
   "Mi llave, saca la idea y la volvemos código.",
   "Tranquilo, aquí estamos pa' que esto salga.",
-  "Cogela suave: hoy sí se programa.",
+  "Cógela suave: hoy sí se programa.",
 ];
 
 type Rgb = readonly [number, number, number];

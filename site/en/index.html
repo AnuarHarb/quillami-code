@@ -49,7 +49,7 @@
     <section class="contenedor hero" aria-labelledby="title">
       <div>
         <p class="etiqueta">Coding agent · made in the Caribbean</p>
-        <h1 id="title" class="display-xl">Code with a breeze.</h1>
+        <h1 id="title" class="display-xl"><span>Take it easy.</span> <span>The code gets done.</span></h1>
         <p class="subtitulo">A coding agent in your terminal. It reads, searches, edits, and runs commands in your project, with your permission. Not a chatbot: a loop.</p>
         <div class="qc-row">
           <div class="qc-install">
@@ -256,6 +256,34 @@
           <li><p class="cuerpo">Run <code>quillami</code> in your project. The first time, check your keys with the space bar: OpenRouter and Jev are recommended.</p></li>
           <li><p class="cuerpo">Type the task. Quillami asks before it touches anything.</p></li>
         </ol>
+        <h3 class="keys__titulo">Get your keys</h3>
+        <p class="cuerpo">You need at least one model key: OpenRouter or Anthropic. Quillami asks for them the first time and saves them in <code>~/.quillami/.env</code>.</p>
+        <ul class="keys">
+          <li>
+            <a href="https://openrouter.ai/keys">OpenRouter</a>
+            <p class="keys__tipo">Recommended</p>
+            <p>Hundreds of models with a single key. This one is enough to start.</p>
+            <code>OPENROUTER_API_KEY</code>
+          </li>
+          <li>
+            <a href="https://typesafe.ai">Jev (TypeSafe)</a>
+            <p class="keys__tipo">Recommended</p>
+            <p>Picks the model for each message and approves only harmless commands.</p>
+            <code>TYPESAFE_API_KEY</code>
+          </li>
+          <li>
+            <a href="https://console.anthropic.com/settings/keys">Anthropic</a>
+            <p class="keys__tipo">Optional</p>
+            <p>Claude directly, without going through OpenRouter.</p>
+            <code>ANTHROPIC_API_KEY</code>
+          </li>
+          <li>
+            <a href="https://artificialanalysis.ai/api-reference">Artificial Analysis</a>
+            <p class="keys__tipo">Optional · free</p>
+            <p>With OpenRouter and Jev, auto mode picks by benchmarks.</p>
+            <code>ARTIFICIAL_ANALYSIS_API_KEY</code>
+          </li>
+        </ul>
         <a class="qc-btn qc-btn--secundario" href="https://github.com/AnuarHarb/quillami-code/blob/main/README.en.md">Read the full guide</a>
       </div>
     </section>
