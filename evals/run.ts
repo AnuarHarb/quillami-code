@@ -4,13 +4,15 @@ import { runTurn, type History } from "../src/agent/loop.ts";
 import { createCheckpointStore } from "../src/checkpoint.ts";
 import { loadEnv } from "../src/env.ts";
 import { resolveModel } from "../src/models.ts";
+import { type ModelChoice } from "../src/models.ts";
 import { type PermissionGate } from "../src/permissions.ts";
+import { defaultToolRegistry } from "../src/toolRegistry.ts";
 import { createUsageLedger } from "../src/usage.ts";
 import { withWorkspace } from "../test/workspace.ts";
 import { EVAL_CASES } from "./cases.ts";
 
 const allowAll: PermissionGate = {
-  authorize: async () => true,
+  authorize: async () => ({ allowed: true }),
 };
 
 const TIMEOUT_MS = 120_000;
@@ -56,7 +58,7 @@ async function main(): Promise<void> {
 
 async function runCase(
   evalCase: (typeof EVAL_CASES)[number],
-  model: string,
+  model: ModelChoice,
 ): Promise<void> {
   await withWorkspace(async (root) => {
     for (const [relative, content] of Object.entries(evalCase.files)) {
@@ -73,6 +75,7 @@ async function runCase(
       model,
       createCheckpointStore(),
       createUsageLedger({ persist: false }),
+      { registry: defaultToolRegistry() },
     );
 
     const problem = await evalCase.check(root);

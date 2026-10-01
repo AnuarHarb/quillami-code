@@ -3,11 +3,14 @@ import { CONFIG_DIR_NAME } from "./config.js";
 import {
   applyRiskPolicy,
   assessToolRisk,
+  matchesDenylist,
   type RiskInput,
   type RiskPolicyResult,
 } from "./decisions.js";
+import type { AgentMode } from "./mode.js";
+import { isPlanBlockedTool } from "./toolRegistry.js";
 
-const RISKY_TOOLS = new Set(["write", "edit", "bash", "remember_user"]);
+const RISKY_TOOLS = new Set(["write", "edit", "bash", "remember_user", "web_fetch"]);
 
 export type AskFn = (prompt: string) => Promise<string>;
 
@@ -25,16 +28,35 @@ export type PermissionGate = {
   authorize(name: string, input: unknown): Promise<AuthorizeResult>;
 };
 
+export function needsApproval(name: string): boolean {
+  if (name.startsWith("mcp__")) return true;
+  return RISKY_TOOLS.has(name);
+}
+
 export function createGate(
   ask: AskFn,
-  options?: { assessRisk?: AssessRiskFn },
+  options?: {
+    assessRisk?: AssessRiskFn;
+    getMode?: () => AgentMode;
+    nonInteractive?: boolean;
+  },
 ): PermissionGate {
   let allowSession = false;
 
   return {
     async authorize(name, input) {
-      if (!RISKY_TOOLS.has(name)) {
+      if (!needsApproval(name)) {
         return { allowed: true };
+      }
+
+      const mode = options?.getMode?.() ?? "agent";
+
+      if (mode === "plan" && isPlanBlockedTool(name)) {
+        return {
+          allowed: false,
+          toolMessage:
+            "Plan mode is active: use read-only tools and finish with a written plan. Do not call write, edit, bash, web_fetch, remember_user, or MCP tools until the user switches to agent mode.",
+        };
       }
 
       const riskInput = toRiskInput(name, input);
@@ -45,11 +67,6 @@ export function createGate(
         policy = applyRiskPolicy(name, riskInput, null);
       }
 
-      if (policy?.action === "allow") {
-        process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
-        return { allowed: true };
-      }
-
       if (policy?.action === "deny") {
         process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
         return {
@@ -58,9 +75,34 @@ export function createGate(
         };
       }
 
-      const forceAsk = policy?.forceAsk ?? false;
-      if (allowSession && !forceAsk) {
+      if (mode === "yolo") {
+        const onDenylist =
+          name === "bash" && riskInput ? matchesDenylist(riskInput) : false;
+        if (onDenylist) {
+          // fall through to prompt
+        } else if (policy?.action === "allow") {
+          process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
+          return { allowed: true };
+        } else {
+          return { allowed: true };
+        }
+      } else if (policy?.action === "allow") {
+        process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
         return { allowed: true };
+      }
+
+      const forceAsk =
+        policy && policy.action === "ask" ? policy.forceAsk : false;
+      if (allowSession && !forceAsk && mode !== "yolo") {
+        return { allowed: true };
+      }
+
+      if (options?.nonInteractive && mode !== "yolo") {
+        return {
+          allowed: false,
+          toolMessage:
+            "Non-interactive mode denied this action. Re-run with a TTY or use --yolo.",
+        };
       }
 
       const detail = describeAction(name, input, policy?.note);
@@ -135,6 +177,8 @@ function describeAction(
 
   if (name === "bash") {
     base = "Esto corre en tu máquina.";
+  } else if (name === "web_fetch") {
+    base = `Descargo ${stringArg(args.url) || "URL"} · puede salir data del repo`;
   } else if (name === "write") {
     const filePath = stringArg(args.path);
     const content = stringArg(args.content);
@@ -153,6 +197,8 @@ function describeAction(
             ? "behaviors.md"
             : "memoria global";
     base = `Guardo en ~/${CONFIG_DIR_NAME}/${file}`;
+  } else if (name.startsWith("mcp__")) {
+    base = `MCP ${name}`;
   }
 
   if (riskNote) {

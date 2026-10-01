@@ -2,9 +2,14 @@
 
 Agente de código en TypeScript. Los usuarios lo instalan con `npm install -g quillami-code`. El comando es `quillami` (o `quillami-code`). Aquí también vale `npm start`.
 
-- Entrada: `src/index.ts`
+- Entrada: `src/index.ts` · args: `src/cli.ts`
 - Config: `src/config.ts` — nombre, `~/.quillami`, `QUILLAMI.md`
-- Loop: `src/agent/loop.ts`
+- Loop: `src/agent/loop.ts` · tools: `src/toolRegistry.ts`, `src/tools.ts`
+- Sesiones: `src/sessions.ts` — `~/.quillami/sessions/*.json`, `-c`, `--resume`, `/sessions`, `/new`
+- MCP: `src/mcp.ts` — `~/.quillami/mcp.json`, tools `mcp__servidor__tool`, `/mcp`, `quillami mcp`
+- Web: `src/webFetch.ts` — tool `web_fetch` (solo URLs públicas)
+- Modos: `src/mode.ts` — agent / plan / yolo (`--plan`, `--yolo`, `/mode`)
+- Doctor: `src/doctor.ts` — `quillami doctor`
 - Compactación: `src/agent/compact.ts` — si el historial pasa ~20k tokens, resume lo viejo y deja ~7k de cola
 - Tokens: `src/usage.ts` — gasto por turno/sesión/total; `/usage`
 - Modelos: `src/models.ts` — Anthropic + MiniMax; `quillami --model minimax` o `/model`
@@ -13,11 +18,12 @@ Agente de código en TypeScript. Los usuarios lo instalan con `npm install -g qu
 - Jev: `src/jev.ts` — cliente TypeSafe (`TYPESAFE_API_KEY`), timeout ~4s, fallback silencioso
 - Decisiones: `src/decisions.ts` — riesgo de permisos, router `auto`, memoria al fin del turno
 - Memoria global: `src/userMemory.ts` — `~/.quillami/soul.md`, `user.md`, `behaviors.md`, `projects.json`; `/memory`, `/projects`
-- Tools: `src/tools.ts` (`read`, `write`, `edit`, `bash`, `grep`, `glob`, `ls`, `remember_user`)
-- Permisos: `src/permissions.ts` — `write`, `edit`, `bash` y `remember_user` preguntan s/n/a
+- Permisos: `src/permissions.ts` — write/edit/bash/web_fetch/MCP/remember_user; s/n/a; yolo y plan
 - Checkpoints: `src/checkpoint.ts` — foto de `write`/`edit` por turno; `/undo` restaura. `bash` no se deshace.
 - Banner: `src/banner.ts`
 - Spinner: `src/spinner.ts`
+
+One-shot: `quillami "tu prompt"` (un turno y sale). Sin TTY niega tools salvo `--yolo`.
 
 Los tests del harness: `npm test`. Los evals del agente: `npm run eval` (necesitan API key). CI en `.github/workflows/ci.yml`. Después de cambiar el código, corre `npm run build` para que el comando `quillami` se actualice.
 

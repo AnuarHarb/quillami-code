@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@typesafe-ai/sdk": "^0.6.0"
   },
   "devDependencies": {

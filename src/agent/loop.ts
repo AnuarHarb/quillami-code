@@ -5,10 +5,11 @@ import { loadProjectMemory } from "../memory.js";
 import { APP_NAME, CONFIG_DIR_NAME, PROJECT_MEMORY_FILE } from "../config.js";
 import { loadGlobalMemory } from "../userMemory.js";
 import { type ModelChoice } from "../models.js";
+import type { AgentMode } from "../mode.js";
 import { type PermissionGate } from "../permissions.js";
 import { createClient } from "../providers.js";
 import { startSpinner } from "../spinner.js";
-import { executeTool, TOOL_DEFINITIONS } from "../tools.js";
+import { defaultToolRegistry, type ToolRegistry } from "../toolRegistry.js";
 import { type UsageLedger } from "../usage.js";
 
 const MAX_ITERATIONS = 20;
@@ -17,7 +18,7 @@ const SYSTEM_PROMPT = `You are ${APP_NAME}, a local coding agent.
 You work inside the user's current workspace and use tools to inspect and edit files.
 Prefer small, targeted edits over rewriting whole files.
 If a tool fails, read the error and try another approach.
-write, edit, bash, and remember_user need the user's approval. If they deny a tool, do not retry it unless they ask.
+write, edit, bash, web_fetch, remember_user, and MCP tools need the user's approval. If they deny a tool, do not retry it unless they ask.
 
 Global memory in ~/${CONFIG_DIR_NAME} (use remember_user, not write):
 - soul.md: your identity as Quillami (voice, interests, what you have done). Not facts about the human.
@@ -29,10 +30,20 @@ Do not update global memory every turn. Update when the user asks to remember so
 Never store API keys, tokens, .env contents, or bash secrets in any memory file.
 Respond in the user's language.`;
 
+const PLAN_ADDENDUM = `Plan mode: use read-only tools (read, grep, glob, ls) to investigate.
+Do not call write, edit, bash, web_fetch, remember_user, or MCP tools.
+Finish with a clear, actionable plan for the user; do not execute changes yourself.`;
+
 export type History = Anthropic.MessageParam[];
 
 export type TurnResult = {
   rememberUserCalled: boolean;
+};
+
+export type RunTurnOptions = {
+  turnNote?: string;
+  mode?: AgentMode;
+  registry?: ToolRegistry;
 };
 
 export async function runTurn(
@@ -42,9 +53,11 @@ export async function runTurn(
   model: ModelChoice,
   checkpoints: CheckpointStore,
   usage: UsageLedger,
-  options?: { turnNote?: string },
+  options?: RunTurnOptions,
 ): Promise<TurnResult> {
   const client = createClient(model);
+  const mode = options?.mode ?? "agent";
+  const registry = options?.registry ?? defaultToolRegistry();
 
   history.push({ role: "user", content: userMessage });
   checkpoints.beginTurn();
@@ -61,6 +74,8 @@ export async function runTurn(
       gate,
       checkpoints,
       usage,
+      registry,
+      mode,
     );
   } finally {
     checkpoints.finishTurn();
@@ -75,12 +90,21 @@ async function runToolLoop(
   gate: PermissionGate,
   checkpoints: CheckpointStore,
   usage: UsageLedger,
+  registry: ToolRegistry,
+  mode: AgentMode,
 ): Promise<boolean> {
   let rememberUserCalled = false;
 
   for (let step = 0; step < MAX_ITERATIONS; step += 1) {
     await compactIfNeeded(client, model, history, usage);
-    const response = await streamAssistant(client, model, history, usage);
+    const response = await streamAssistant(
+      client,
+      model,
+      history,
+      usage,
+      registry,
+      mode,
+    );
     history.push({ role: "assistant", content: response.content });
 
     if (response.stop_reason !== "tool_use") {
@@ -116,7 +140,7 @@ async function runToolLoop(
 
       let output: string;
       try {
-        output = await executeTool(block.name, block.input);
+        output = await registry.execute(block.name, block.input);
       } catch (error) {
         output = `Error: ${error instanceof Error ? error.message : String(error)}`;
       }
@@ -144,6 +168,8 @@ async function streamAssistant(
   model: string,
   history: History,
   usage: UsageLedger,
+  registry: ToolRegistry,
+  mode: AgentMode,
 ): Promise<Anthropic.Message> {
   const stopSpinner = startSpinner();
 
@@ -151,8 +177,8 @@ async function streamAssistant(
     const stream = client.messages.stream({
       model,
       max_tokens: 8000,
-      system: buildSystemPrompt(),
-      tools: TOOL_DEFINITIONS,
+      system: buildSystemPrompt(mode),
+      tools: registry.definitions(mode),
       messages: history,
     });
 
@@ -179,10 +205,13 @@ async function streamAssistant(
   }
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(mode: AgentMode): string {
   const globalMem = loadGlobalMemory();
   const projectMem = loadProjectMemory();
   const parts = [SYSTEM_PROMPT];
+  if (mode === "plan") {
+    parts.push(PLAN_ADDENDUM);
+  }
 
   if (globalMem.body) {
     parts.push(globalMem.body);
@@ -215,6 +244,7 @@ function filePathOf(input: unknown): string | null {
 function summarizeInput(input: unknown): string {
   if (!input || typeof input !== "object") return "";
   const record = input as Record<string, unknown>;
-  const value = record.path ?? record.command ?? record.pattern ?? record.target;
+  const value =
+    record.path ?? record.command ?? record.pattern ?? record.target ?? record.url;
   return typeof value === "string" ? value : "";
 }

@@ -38,6 +38,21 @@ describe("permissions", () => {
     assert.equal((await session.authorize("write", { path: "b.ts", content: "2" })).allowed, true);
   });
 
+  it("blocks write in plan mode", async () => {
+    const gate = createGate(async () => "s", { getMode: () => "plan" });
+    const result = await gate.authorize("write", { path: "a.ts", content: "x" });
+    assert.equal(result.allowed, false);
+    assert.match(result.toolMessage ?? "", /Plan mode/i);
+  });
+
+  it("auto-approves write in yolo mode", async () => {
+    const gate = createGate(async () => "n", { getMode: () => "yolo" });
+    assert.equal(
+      (await gate.authorize("write", { path: "a.ts", content: "x" })).allowed,
+      true,
+    );
+  });
+
   it("honors assessRisk auto-allow without prompting", async () => {
     let asked = 0;
     const gate = createGate(

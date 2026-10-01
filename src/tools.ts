@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_DIR_NAME } from "./config.js";
+import { fetchPublicUrl } from "./webFetch.js";
 import { rememberUser } from "./userMemory.js";
 
 const execFileAsync = promisify(execFile);
@@ -17,7 +18,7 @@ const IGNORE = new Set(["node_modules", ".git", "dist"]);
 const MAX_FILE_BYTES = 200_000;
 const MAX_GREP_HITS = 50;
 
-export const TOOL_DEFINITIONS = [
+export const BUILTIN_TOOL_DEFINITIONS = [
   {
     name: "read",
     description:
@@ -107,6 +108,22 @@ export const TOOL_DEFINITIONS = [
           description: "Directory path relative to the workspace",
         },
       },
+    },
+  },
+  {
+    name: "web_fetch",
+    description:
+      "Fetch a public http or https URL and return text (HTML is stripped). Local and private network URLs are blocked.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "Public http or https URL" },
+        max_chars: {
+          type: "number",
+          description: "Maximum characters to return (default 20000)",
+        },
+      },
+      required: ["url"],
     },
   },
   {
@@ -330,6 +347,15 @@ async function toolRememberUser(input: Record<string, unknown>): Promise<string>
   return rememberUser(input);
 }
 
+async function toolWebFetch(input: Record<string, unknown>): Promise<string> {
+  const url = asString(input.url, "url");
+  const maxChars =
+    typeof input.max_chars === "number" && Number.isFinite(input.max_chars)
+      ? input.max_chars
+      : undefined;
+  return fetchPublicUrl(url, { maxChars });
+}
+
 const handlers: Record<string, (input: Record<string, unknown>) => Promise<string>> = {
   read: toolRead,
   write: toolWrite,
@@ -338,10 +364,14 @@ const handlers: Record<string, (input: Record<string, unknown>) => Promise<strin
   grep: toolGrep,
   glob: toolGlob,
   ls: toolLs,
+  web_fetch: toolWebFetch,
   remember_user: toolRememberUser,
 };
 
-export async function executeTool(
+/** @deprecated use executeBuiltinTool or ToolRegistry */
+export const TOOL_DEFINITIONS = BUILTIN_TOOL_DEFINITIONS;
+
+export async function executeBuiltinTool(
   name: string,
   input: unknown,
 ): Promise<string> {
@@ -352,4 +382,11 @@ export async function executeTool(
   const args =
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   return handler(args);
+}
+
+export async function executeTool(
+  name: string,
+  input: unknown,
+): Promise<string> {
+  return executeBuiltinTool(name, input);
 }

@@ -10,15 +10,18 @@ TypeScript, MIT, sin frameworks de orquestación. Este repo es el agente y un lu
 
 ## Qué hace
 
-- Lee, busca y lista archivos del workspace
-- Edita y escribe código
-- Corre comandos en la carpeta actual
-- Pregunta antes de `write`, `edit`, `bash` y `remember_user`
-- Memoria de repo: `QUILLAMI.md` o `AGENTS.md` (también lee `KILLAMI.md` si migraste)
-- Memoria global en `~/.quillami`: `soul.md`, `user.md`, `behaviors.md`
-- Compacta el historial cuando la sesión crece (~20k tokens)
-- Modelos Anthropic y MiniMax; cambio al vuelo con `/model`
-- **Jev (opcional):** capa de decisiones tipadas ([TypeSafe](https://typesafe.ai)) — permisos más inteligentes, `/model auto`, propuesta de memoria al cerrar el turno. Sin `TYPESAFE_API_KEY` todo funciona como antes.
+- Lee, busca, lista y edita archivos del workspace; corre `bash` con permiso
+- **`web_fetch`:** descarga URLs públicas (http/https); bloquea redes privadas y localhost
+- **MCP:** servidores en `~/.quillami/mcp.json` (stdio o HTTP); tools expuestas como `mcp__servidor__tool`
+- **Sesiones:** historial en `~/.quillami/sessions/`; `-c`, `--resume`, `quillami sessions`, `/sessions`, `/new`
+- **Modos:** `agent` (normal), `plan` (solo lectura + plan), `yolo` (auto-aprueba; denylist y Jev siguen)
+- **One-shot:** `quillami "tu tarea"` — un turno y sale (sin TTY niega tools salvo `--yolo`)
+- **`quillami doctor`:** Node, keys, ping al proveedor, Jev y MCP
+- Memoria de repo: `QUILLAMI.md` / `AGENTS.md` (legacy `KILLAMI.md`)
+- Memoria global: `~/.quillami` (`soul.md`, `user.md`, `behaviors.md`)
+- Compactación del historial (~20k tokens)
+- Anthropic + MiniMax; `/model` y alias `auto` (Jev)
+- **Jev (opcional):** [TypeSafe](https://typesafe.ai) — permisos de `bash`, router `auto`, memoria al fin del turno. Sin key, igual que antes.
 
 El workspace es la carpeta desde la que lanzas `quillami`, no necesariamente este repo.
 
@@ -57,7 +60,7 @@ Desarrollo en este repo: `npm install`, `npm start`. Tras cambiar código: `npm 
 
 Escribes en el prompt. `/exit` cierra.
 
-Permisos para acciones sensibles:
+Permisos para acciones sensibles (`write`, `edit`, `bash`, `web_fetch`, `remember_user`, MCP):
 
 ```text
   s  sí, solo esta vez
@@ -67,7 +70,61 @@ Permisos para acciones sensibles:
 
 `/undo` restaura archivos tocados por `write`/`edit` en el último turno (no deshace `bash`).
 
-Comandos útiles: `/model`, `/login`, `/login typesafe`, `/memory`, `/projects`, `/usage`, `/undo`.
+Comandos útiles: `/model`, `/mode`, `/login`, `/memory`, `/projects`, `/sessions`, `/new`, `/mcp`, `/usage`, `/undo`.
+
+```bash
+quillami "explica este archivo"     # un turno y sale
+quillami -c                         # continúa la última sesión en este repo
+quillami --resume <id>              # retoma por id (/sessions)
+quillami sessions                   # lista sesiones del cwd
+quillami --plan                     # solo lectura + plan al final
+quillami --yolo "corre los tests"   # auto-aprueba (denylist/Jev siguen)
+quillami doctor                     # keys, ping al proveedor, Jev, MCP
+quillami mcp                        # servidores MCP conectados
+```
+
+## Modos
+
+| Modo | Flag / slash | Comportamiento |
+|------|----------------|----------------|
+| **agent** | (default) | Tools completas; permisos s/n/a |
+| **plan** | `--plan`, `/mode plan` | Solo lectura; el modelo termina con un plan (sin write/bash/MCP) |
+| **yolo** | `--yolo`, `/mode yolo` | Auto-aprueba tools; denylist en `bash` y bloqueos Jev siguen |
+
+En plan, el prompt muestra `plan> `; en yolo, `yolo> `.
+
+## Sesiones
+
+Cada carpeta de trabajo guarda hasta **50** sesiones en `~/.quillami/sessions/<id>.json` (historial completo, escritura atómica).
+
+- **`quillami -c`** — retoma la sesión más reciente de este `cwd`
+- **`quillami --resume <id>`** — retoma por id (lista con `quillami sessions` o `/sessions`)
+- **`/new`** — historial limpio, id nuevo (mismo cwd)
+- **`--model`** al arrancar override el modelo guardado en la sesión
+
+`/undo` solo afecta el turno actual (checkpoints no se persisten entre sesiones).
+
+## MCP
+
+Configura `~/.quillami/mcp.json`. Las variables `${NOMBRE}` se expanden desde el entorno (p. ej. `~/.quillami/.env`).
+
+```json
+{
+  "servers": {
+    "easybits": {
+      "url": "https://www.easybits.cloud/api/mcp?tools=core",
+      "headers": { "Authorization": "Bearer ${EASYBITS_API_KEY}" }
+    }
+  }
+}
+```
+
+- **`url`** — Streamable HTTP
+- **`command` + `args`** — servidor stdio (p. ej. `npx -y …`)
+- **`enabled: false`** — desactiva un servidor
+- **`tools`** — array opcional para limitar qué tools se exponen
+
+Al arrancar, Quillami conecta en paralelo (timeout ~10s); fallos se anuncian y se sigue sin ese servidor. Banner: `mcp: easybits (N tools)`. Detalle: `/mcp` o `quillami mcp`.
 
 ## Decisiones con Jev
 
@@ -122,15 +179,22 @@ Cada turno muestra tokens y estimado en USD. `/usage` detalla; total acumulado e
 ## Arquitectura (breve)
 
 ```text
-src/index.ts         CLI
-src/config.ts        nombre, ~/.quillami, QUILLAMI.md
+src/index.ts         CLI, REPL, one-shot
+src/cli.ts           flags y subcomandos
 src/agent/loop.ts    loop modelo → tools
-src/userMemory.ts    memoria global
-src/memory.ts        memoria de repo
-src/tools.ts         read write edit bash grep glob ls remember_user
+src/toolRegistry.ts  builtin + MCP por modo
+src/tools.ts         read write edit bash grep glob ls web_fetch remember_user
+src/mcp.ts           cliente MCP (@modelcontextprotocol/sdk)
+src/sessions.ts      persistencia ~/.quillami/sessions
+src/permissions.ts   s/n/a, plan, yolo, Jev
+src/jev.ts           cliente TypeSafe
+src/decisions.ts     riesgo, router auto, memoria
+src/doctor.ts        quillami doctor
 test/                harness
 evals/               tareas con API real
 ```
+
+Más detalle en [QUILLAMI.md](QUILLAMI.md).
 
 ## Tests y CI
 
@@ -145,11 +209,10 @@ GitHub Actions: typecheck, tests, build; evals opcionales si hay secret.
 
 - Prompt caching en el loop
 - Sandbox real (p. ej. Firecracker), no solo consentimiento
-- Cliente MCP
 - Subagentes
 - Reintentos ante 429
 - Más evals con pass rate por modelo
-- Sesiones persistentes (`--continue`)
+- Búsqueda web (hoy solo `web_fetch` de una URL)
 
 Issues y PRs bienvenidos.
 
