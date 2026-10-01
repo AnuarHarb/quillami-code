@@ -31,6 +31,7 @@ import {
   type McpRuntime,
 } from "./mcp.js";
 import {
+  autoBaseline,
   autoTiers,
   defaultModel,
   formatModelLine,
@@ -486,7 +487,7 @@ async function runUserTurn(options: {
     turnModel = autoPick.model;
     process.stdout.write(`\n${formatAutoPick(autoPick)}\n`);
     turnNote = `jev → ${turnModel.label}`;
-    const baseline = autoTiers(options.model.provider).standard;
+    const baseline = autoBaseline(options.model.provider);
     options.usage.setAutoRoute({
       label: turnModel.label,
       detail: autoPick.benchmark ? `índice ${autoPick.benchmark.intelligence.toFixed(1)}` : undefined,
@@ -572,12 +573,13 @@ function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime
     ),
   );
   if (isAutoModel(model)) {
-    const via = model.provider === "openrouter" ? " vía OpenRouter" : "";
+    const tiers = autoTiers(model.provider);
+    const labels = [...new Set(Object.values(tiers).map((tier) => tier.label))];
     const how = !jevEnabled()
-      ? "sin key de Jev usa Sonnet siempre (/setup para añadirla)"
+      ? `sin key de Jev usa ${tiers.standard.label} siempre (/setup para añadirla)`
       : benchmarksEnabled()
         ? `Jev mide la dificultad y elige el modelo más barato que la cumple · ${BENCHMARK_ATTRIBUTION}`
-        : `Jev elige Haiku, Sonnet u Opus${via} en cada mensaje`;
+        : `Jev elige ${labels.slice(0, -1).join(", ")} o ${labels.at(-1)} en cada mensaje`;
     console.log(dim(`   modelo: auto · ${how}`));
   } else {
     console.log(dim(`   modelo: ${formatModelLine(model)}`));

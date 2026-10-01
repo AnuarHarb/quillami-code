@@ -40,6 +40,7 @@ const COMPLEXITY_CRITERIA = [
   "trivial — pregunta corta, un paso, sin arquitectura",
   "estándar — programación normal en el repo",
   "difícil — diseño, muchos archivos, debugging profundo o refactor grande",
+  "muy difícil — arquitectura de un sistema entero, bug sutil entre muchos módulos, migración o trabajo largo y autónomo",
 ] as const;
 
 export const RISK_AUTO_MAX_SCORE = 0.5;
@@ -48,6 +49,9 @@ export const RISK_BLOCK_MIN_SCORE = 2.5;
 export const RISK_BLOCK_MIN_CONFIDENCE = 0.85;
 export const RISK_FORCE_ASK_MIN_SCORE = 2;
 export const COMPLEXITY_MIN_CONFIDENCE = 0.6;
+/** The top tier costs about twice the hard one for a small gain, so it needs a clear signal. */
+export const COMPLEXITY_MAX_MIN_SCORE = 2.5;
+export const COMPLEXITY_MAX_MIN_CONFIDENCE = 0.8;
 
 const SECRET_PATTERNS: RegExp[] = [
   /\bsk-[a-zA-Z0-9]{20,}\b/,
@@ -194,7 +198,7 @@ export function parseJevRisk(
 export type AutoPick = {
   model: ModelChoice;
   tier: BenchmarkTier;
-  /** "trivial", "estándar", "difícil", "confianza baja" or "sin Jev". */
+  /** "trivial", "estándar", "difícil", "muy difícil", "confianza baja" or "sin Jev". */
   difficulty: string;
   benchmark?: { intelligence: number; bar: number };
   /** Stayed on the previous turn's model because its prompt cache made it cheaper. */
@@ -210,6 +214,9 @@ export function complexityTier(
   }
   if (answer.score < 0.75) return { tier: "light", difficulty: "trivial" };
   if (answer.score < 1.75) return { tier: "standard", difficulty: "estándar" };
+  if (answer.score >= COMPLEXITY_MAX_MIN_SCORE && answer.confidence >= COMPLEXITY_MAX_MIN_CONFIDENCE) {
+    return { tier: "max", difficulty: "muy difícil" };
+  }
   return { tier: "heavy", difficulty: "difícil" };
 }
 
@@ -240,7 +247,7 @@ export function pickModelByBenchmark(
   };
 }
 
-const TIER_RANK: Record<BenchmarkTier, number> = { light: 0, standard: 1, heavy: 2 };
+const TIER_RANK: Record<BenchmarkTier, number> = { light: 0, standard: 1, heavy: 2, max: 3 };
 /** Prompt caches expire after about five minutes; past that, switching loses nothing. */
 export const AUTO_CACHE_TTL_MS = 5 * 60 * 1000;
 const ESTIMATED_OUTPUT_TOKENS = 1_000;

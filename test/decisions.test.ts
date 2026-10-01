@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   applyRiskPolicy,
   AUTO_CACHE_TTL_MS,
+  complexityTier,
   formatAutoPick,
   looksLikeSecret,
   matchesDenylist,
@@ -87,10 +88,24 @@ describe("decisions router", () => {
       legend: {} as never,
       probabilities: {} as never,
     });
-    assert.equal(pickModelForComplexity(answer(0.2), "openrouter").model.id, "~anthropic/claude-haiku-latest");
-    assert.equal(pickModelForComplexity(answer(1), "openrouter").model.id, "~anthropic/claude-sonnet-latest");
-    assert.equal(pickModelForComplexity(answer(2), "openrouter").model.id, "~anthropic/claude-opus-latest");
+    assert.equal(pickModelForComplexity(answer(0.2), "openrouter").model.id, "deepseek/deepseek-v4.1-flash");
+    assert.equal(pickModelForComplexity(answer(1), "openrouter").model.id, "xiaomi/mimo-v2.6-pro");
+    assert.equal(pickModelForComplexity(answer(2), "openrouter").model.id, "anthropic/claude-sonnet-5.5");
     assert.equal(pickModelForComplexity(answer(2), "openrouter").model.provider, "openrouter");
+    assert.equal(pickModelForComplexity(answer(2.8), "openrouter").model.id, "anthropic/claude-opus-5.5");
+  });
+
+  it("only reaches the top tier with a high score and a clear signal", () => {
+    const answer = (score: number, confidence: number) => ({
+      type: "score" as const,
+      score,
+      confidence,
+      legend: {} as never,
+      probabilities: {} as never,
+    });
+    assert.deepEqual(complexityTier(answer(2.8, 0.9)), { tier: "max", difficulty: "muy difícil" });
+    assert.deepEqual(complexityTier(answer(2.4, 0.95)), { tier: "heavy", difficulty: "difícil" });
+    assert.deepEqual(complexityTier(answer(2.8, 0.7)), { tier: "heavy", difficulty: "difícil" });
   });
 });
 

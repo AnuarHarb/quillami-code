@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
+  autoBaseline,
   autoTiers,
   DEFAULT_MODEL_ID,
   defaultModel,
@@ -96,15 +97,22 @@ describe("models", () => {
       assert.equal(resolveModel("auto")?.provider, "openrouter");
       assert.deepEqual(
         Object.values(autoTiers("openrouter")).map((model) => model.id),
-        ["~anthropic/claude-haiku-latest", "~anthropic/claude-sonnet-latest", "~anthropic/claude-opus-latest"],
+        [
+          "deepseek/deepseek-v4.1-flash",
+          "xiaomi/mimo-v2.6-pro",
+          "anthropic/claude-sonnet-5.5",
+          "anthropic/claude-opus-5.5",
+        ],
       );
+      assert.equal(autoBaseline("openrouter").id, "~anthropic/claude-sonnet-latest");
 
       process.env.ANTHROPIC_API_KEY = "sk-ant-test";
       assert.equal(resolveModel("auto")?.provider, "anthropic");
       assert.deepEqual(
         Object.values(autoTiers("anthropic")).map((model) => model.alias),
-        ["haiku", "sonnet-4.5", "opus"],
+        ["haiku", "sonnet-4.5", "opus", "opus"],
       );
+      assert.equal(autoBaseline("anthropic").alias, "sonnet-4.5");
     } finally {
       restore("OPENROUTER_API_KEY", previousOpenRouter);
       restore("ARTIFICIAL_ANALYSIS_API_KEY", previousBenchmarks);

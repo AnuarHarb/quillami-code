@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BENCHMARK_SNAPSHOT } from "./benchmarkSnapshot.js";
 import { configDir } from "./config.js";
 import type { OpenRouterModel } from "./openrouter.js";
 
@@ -13,13 +12,14 @@ const MIN_CONTEXT = 128_000;
 
 export const BENCHMARK_ATTRIBUTION = "benchmarks: Artificial Analysis (artificialanalysis.ai)";
 
-export type BenchmarkTier = "light" | "standard" | "heavy";
+export type BenchmarkTier = "light" | "standard" | "heavy" | "max";
 
 /** Minimum intelligence index per tier, as a fraction of the best model in the pool. */
 export const BENCHMARK_BARS: Record<BenchmarkTier, number> = {
   light: 0.6,
   standard: 0.8,
   heavy: 0.95,
+  max: 1,
 };
 
 export type BenchmarkModel = { slug: string; name: string; intelligence: number };
@@ -59,8 +59,8 @@ export function benchmarksEnabled(): boolean {
 }
 
 /**
- * Fresh cache wins. When the API can't be reached, the newer of the stale
- * cache and the bundled snapshot is used.
+ * Fresh cache wins; a failed refresh falls back to a stale cache. The free
+ * tier's terms forbid redistributing the data, so nothing is bundled.
  */
 export async function loadBenchmarks(options?: {
   force?: boolean;
@@ -73,14 +73,13 @@ export async function loadBenchmarks(options?: {
   if (cached && !options?.force && now() - cached.fetchedAt < BENCHMARKS_TTL_MS) {
     return cached.models;
   }
-  const fallback = cached && cached.fetchedAt > BENCHMARK_SNAPSHOT.fetchedAt ? cached : BENCHMARK_SNAPSHOT;
-  if (!key) return fallback.models;
+  if (!key) return cached?.models ?? null;
 
   let models: BenchmarkModel[];
   try {
     models = await fetchBenchmarks(key, options?.fetchImpl);
   } catch {
-    return fallback.models;
+    return cached?.models ?? null;
   }
   try {
     writeBenchmarksFile({ fetchedAt: now(), models });

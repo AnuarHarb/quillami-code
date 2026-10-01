@@ -256,8 +256,10 @@ describe("runTurn", () => {
       const usage = createUsageLedger({ persist: false });
       const printed: string[] = [];
       const write = process.stdout.write.bind(process.stdout);
-      process.stdout.write = ((chunk: string) => {
-        printed.push(String(chunk));
+      // The test runner sends its own binary messages through stdout; dropping them corrupts the run.
+      process.stdout.write = ((chunk: string | Uint8Array, ...rest: never[]) => {
+        if (typeof chunk !== "string") return write(chunk, ...rest);
+        printed.push(chunk);
         return true;
       }) as typeof process.stdout.write;
       try {

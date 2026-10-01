@@ -10,7 +10,7 @@ TypeScript, MIT, no orchestration frameworks. This repo is the agent and a bluep
 
 ## Features
 
-- **`auto` mode:** Jev rates how hard each message is and Quillami uses the cheapest model that clears it, either across every OpenRouter model (by [Artificial Analysis](https://artificialanalysis.ai) benchmarks) or among Haiku, Sonnet, and Opus. `/usage` shows how much you save compared with always using Sonnet
+- **`auto` mode:** Jev rates how hard each message is and Quillami uses the cheapest model that clears it, either across every OpenRouter model (by [Artificial Analysis](https://artificialanalysis.ai) benchmarks) or among four fixed models. `/usage` shows how much you save compared with always using Sonnet
 - **OpenRouter** and Anthropic: hundreds of models with one key, with a list and search in `/model`
 - Read, search, list, edit, and write files; run `bash` with permission
 - **Diff before approval:** `write` and `edit` show the lines going out and coming in
@@ -168,14 +168,14 @@ Key: `/setup` (option 2), `/login typesafe`, or `TYPESAFE_API_KEY`. Disable with
 
 ### The `auto` model
 
-On each message, Jev rates how hard your request is (trivial, standard, or hard) and Quillami picks the model. Which models it picks from depends on your keys:
+On each message, Jev rates how hard your request is (trivial, standard, hard, or very hard) and Quillami picks the model. Which models it picks from depends on your keys:
 
 | Keys | Picks from |
 |------|------------|
 | Jev + OpenRouter + Artificial Analysis | Every OpenRouter model with tools: the cheapest one that clears the bar, by benchmark |
-| Jev + OpenRouter | Claude Haiku, Sonnet, or Opus through OpenRouter (`~anthropic/claude-*-latest` aliases) |
+| Jev + OpenRouter | DeepSeek V4.1 Flash (trivial), MiMo V2.6 Pro (standard), Claude Sonnet 5.5 (hard), or Claude Opus 5.5 (very hard) |
 | Jev + Anthropic | Claude Haiku, Sonnet, or Opus directly |
-| No Jev | Sonnet on every message |
+| No Jev | The standard model on every message (MiMo V2.6 Pro, or Sonnet 4.5 with Anthropic) |
 
 With a Jev key and no saved model, Quillami starts in `auto`. Before each answer you see what it picked (the CLI speaks Spanish):
 
@@ -192,10 +192,14 @@ With `ARTIFICIAL_ANALYSIS_API_KEY` (free at [artificialanalysis.ai](https://arti
 | Trivial | 60% of the best model | DeepSeek V4.1 Flash ($0.03 / $0.50 per M) |
 | Standard | 80% | MiMo V2.6 Pro ($0.44 / $0.87) |
 | Hard | 95% | Claude Sonnet 5.5 ($2 / $10) |
+| Very hard | 100% (the best) | Claude Opus 5.5 ($4 / $20) |
+
+"Very hard" costs twice as much as "hard" for a small gain on the index, so it only kicks in when Jev is fairly sure: designing a whole system, a subtle bug across many modules, or a migration. A multi-file refactor is still "hard".
 
 - The minimum is relative to the best available model, so it adjusts itself when new models ship.
 - "Cheapest" is OpenRouter's blended price: 3 parts input to 1 part output.
-- Benchmarks are cached in `~/.quillami/artificial-analysis.json` and refreshed once a day (about 4 of the free tier's 100 daily requests). If the API doesn't respond, it uses a copy bundled with Quillami of the models already matched (or the cache, if newer). Regenerate it with `npm run benchmarks:snapshot`.
+- Benchmarks are cached in `~/.quillami/artificial-analysis.json` and refreshed once a day (about 4 of the free tier's 100 daily requests). If the API doesn't respond, it uses the last cache; with no cache, the four fixed models.
+- The data is yours, fetched with your key: Artificial Analysis's free-tier terms don't allow redistributing it, so Quillami bundles no copy.
 - To limit `auto` to some vendors, set `QUILLAMI_AUTO_VENDORS=anthropic,openai,google` in `~/.quillami/.env`. The minimum is then relative to the best model from those vendors.
 
 #### It does not switch models for nothing

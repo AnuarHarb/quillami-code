@@ -1,4 +1,4 @@
-import { benchmarksEnabled } from "./benchmarks.js";
+import { type BenchmarkTier, benchmarksEnabled } from "./benchmarks.js";
 import {
   cachedOpenRouterModel,
   isOpenRouterId,
@@ -128,31 +128,41 @@ function autoModelChoice(): ModelChoice | null {
   };
 }
 
+/** Our own picks for OpenRouter without benchmarks; keep them in line with what benchmarks would choose. */
 const OPENROUTER_TIERS = {
-  light: "~anthropic/claude-haiku-latest",
-  standard: "~anthropic/claude-sonnet-latest",
-  heavy: "~anthropic/claude-opus-latest",
+  light: { id: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
+  standard: { id: "xiaomi/mimo-v2.6-pro", label: "MiMo V2.6 Pro" },
+  heavy: { id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet 5.5" },
+  max: { id: "anthropic/claude-opus-5.5", label: "Claude Opus 5.5" },
 } as const;
 
-/** The three models `auto` routes between, on the provider `auto` resolved to. */
-export function autoTiers(provider: Provider): {
-  light: ModelChoice;
-  standard: ModelChoice;
-  heavy: ModelChoice;
-} {
+const OPENROUTER_SONNET = "~anthropic/claude-sonnet-latest";
+
+/** The models `auto` routes between, on the provider `auto` resolved to. */
+export function autoTiers(provider: Provider): Record<BenchmarkTier, ModelChoice> {
   if (provider === "openrouter") {
+    const tier = ({ id, label }: { id: string; label: string }) => ({ ...openRouterChoice(id), label });
     return {
-      light: { ...openRouterChoice(OPENROUTER_TIERS.light), label: "Claude Haiku" },
-      standard: { ...openRouterChoice(OPENROUTER_TIERS.standard), label: "Claude Sonnet" },
-      heavy: { ...openRouterChoice(OPENROUTER_TIERS.heavy), label: "Claude Opus" },
+      light: tier(OPENROUTER_TIERS.light),
+      standard: tier(OPENROUTER_TIERS.standard),
+      heavy: tier(OPENROUTER_TIERS.heavy),
+      max: tier(OPENROUTER_TIERS.max),
     };
   }
   const standard = MODELS.find((m) => m.id === DEFAULT_MODEL_ID) ?? MODELS[0];
+  const opus = MODELS.find((m) => m.alias === "opus") ?? standard;
   return {
     light: MODELS.find((m) => m.alias === "haiku") ?? standard,
     standard,
-    heavy: MODELS.find((m) => m.alias === "opus") ?? standard,
+    heavy: opus,
+    max: opus,
   };
+}
+
+/** What `/usage` compares auto against: always using Claude Sonnet. */
+export function autoBaseline(provider: Provider): ModelChoice {
+  if (provider === "openrouter") return { ...openRouterChoice(OPENROUTER_SONNET), label: "Claude Sonnet" };
+  return autoTiers("anthropic").standard;
 }
 
 export function resolveModel(raw: string | undefined): ModelChoice | null {

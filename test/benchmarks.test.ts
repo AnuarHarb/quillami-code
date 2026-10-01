@@ -4,7 +4,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { BENCHMARK_SNAPSHOT } from "../src/benchmarkSnapshot.ts";
 import {
   autoVendors,
   benchmarkIndex,
@@ -130,6 +129,7 @@ describe("benchmarks", () => {
     assert.equal(pickByBenchmark(pool, "light")?.candidate.model.id, "deepseek/deepseek-v4.1-flash");
     assert.equal(pickByBenchmark(pool, "standard")?.candidate.model.id, "xiaomi/mimo-v2.6-pro");
     assert.equal(pickByBenchmark(pool, "heavy")?.candidate.model.id, "anthropic/claude-sonnet-5.5");
+    assert.equal(pickByBenchmark(pool, "max")?.candidate.model.id, "anthropic/claude-opus-5.5");
     assert.equal(pickByBenchmark([], "heavy"), null);
   });
 
@@ -186,26 +186,16 @@ describe("benchmarks", () => {
     assert.equal(calls, 2);
   });
 
-  it("falls back to a stale cache newer than the snapshot when a refresh fails", async () => {
-    const ok = (async () =>
-      new Response(JSON.stringify({ data: [aaEntry("a", 40)] }), { status: 200 })) as typeof fetch;
-    const cachedAt = BENCHMARK_SNAPSHOT.fetchedAt + 1;
-    await loadBenchmarks({ fetchImpl: ok, now: () => cachedAt });
-    const stale = await loadBenchmarks({ fetchImpl: failing, now: () => cachedAt + 2 * DAY });
-    assert.deepEqual(stale?.map((model) => model.slug), ["a"]);
-  });
-
-  it("falls back to the bundled snapshot without a cache", async () => {
-    const models = await loadBenchmarks({ fetchImpl: failing });
-    assert.equal(models, BENCHMARK_SNAPSHOT.models);
-  });
-
-  it("prefers the snapshot over a cache older than it", async () => {
+  it("falls back to the stale cache when a refresh fails", async () => {
     const ok = (async () =>
       new Response(JSON.stringify({ data: [aaEntry("a", 40)] }), { status: 200 })) as typeof fetch;
     await loadBenchmarks({ fetchImpl: ok, now: () => 0 });
-    const models = await loadBenchmarks({ fetchImpl: failing, now: () => BENCHMARK_SNAPSHOT.fetchedAt + 2 * DAY });
-    assert.equal(models, BENCHMARK_SNAPSHOT.models);
+    const stale = await loadBenchmarks({ fetchImpl: failing, now: () => 2 * DAY });
+    assert.deepEqual(stale?.map((model) => model.slug), ["a"]);
+  });
+
+  it("has nothing to offer without the API or a cache", async () => {
+    assert.equal(await loadBenchmarks({ fetchImpl: failing }), null);
   });
 
   it("keeps fetched benchmarks when the cache can't be written", async () => {
@@ -214,12 +204,5 @@ describe("benchmarks", () => {
       new Response(JSON.stringify({ data: [aaEntry("a", 40)] }), { status: 200 })) as typeof fetch;
     const models = await loadBenchmarks({ fetchImpl: ok });
     assert.deepEqual(models?.map((model) => model.slug), ["a"]);
-  });
-
-  it("ships a snapshot that maps onto OpenRouter ids", () => {
-    const slugs = BENCHMARK_SNAPSHOT.models.map((model) => model.slug);
-    assert.ok(slugs.length > 0);
-    assert.equal(new Set(slugs).size, slugs.length);
-    assert.ok(buildBenchmarkPool(CATALOG, BENCHMARK_SNAPSHOT.models).length > 0);
   });
 });

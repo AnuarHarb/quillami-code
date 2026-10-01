@@ -10,7 +10,7 @@ TypeScript, MIT, sin frameworks de orquestación. Este repo es el agente y un lu
 
 ## Qué hace
 
-- **Modo `auto`:** Jev mide la dificultad de cada mensaje y Quillami usa el modelo más barato que la cumple, entre todos los de OpenRouter (según benchmarks de [Artificial Analysis](https://artificialanalysis.ai)) o entre Haiku, Sonnet y Opus. `/usage` te muestra cuánto ahorras frente a usar Sonnet siempre
+- **Modo `auto`:** Jev mide la dificultad de cada mensaje y Quillami usa el modelo más barato que la cumple, entre todos los de OpenRouter (según benchmarks de [Artificial Analysis](https://artificialanalysis.ai)) o entre cuatro modelos fijos. `/usage` te muestra cuánto ahorras frente a usar Sonnet siempre
 - **OpenRouter** y Anthropic: cientos de modelos con una sola key, con lista y buscador en `/model`
 - Lee, busca, lista y edita archivos del workspace; corre `bash` con permiso
 - **Diff antes de aprobar:** `write` y `edit` muestran las líneas que salen y las que entran
@@ -196,14 +196,14 @@ Key: `/setup` (opción 2), `/login typesafe` o `TYPESAFE_API_KEY` en `~/.quillam
 
 ### Modelo `auto`
 
-En cada mensaje, Jev mide la dificultad de lo que pides (trivial, estándar o difícil) y Quillami elige el modelo. Entre qué modelos elige depende de tus keys:
+En cada mensaje, Jev mide la dificultad de lo que pides (trivial, estándar, difícil o muy difícil) y Quillami elige el modelo. Entre qué modelos elige depende de tus keys:
 
 | Keys | Entre qué modelos elige |
 |------|-------------------------|
 | Jev + OpenRouter + Artificial Analysis | Todos los modelos de OpenRouter con tools: el más barato que cumple, según benchmarks |
-| Jev + OpenRouter | Claude Haiku, Sonnet u Opus vía OpenRouter (alias `~anthropic/claude-*-latest`) |
+| Jev + OpenRouter | DeepSeek V4.1 Flash (trivial), MiMo V2.6 Pro (estándar), Claude Sonnet 5.5 (difícil) o Claude Opus 5.5 (muy difícil) |
 | Jev + Anthropic | Claude Haiku, Sonnet u Opus directo |
-| Sin Jev | Sonnet en cada mensaje |
+| Sin Jev | El modelo estándar en cada mensaje (MiMo V2.6 Pro, o Sonnet 4.5 con Anthropic) |
 
 Con key de Jev y sin modelo guardado, Quillami arranca en `auto`. Antes de cada respuesta ves qué eligió:
 
@@ -220,10 +220,14 @@ Con `ARTIFICIAL_ANALYSIS_API_KEY` (gratis en [artificialanalysis.ai](https://art
 | Trivial | 60 % del mejor modelo | DeepSeek V4.1 Flash ($0.03 / $0.50 por M) |
 | Estándar | 80 % | MiMo V2.6 Pro ($0.44 / $0.87) |
 | Difícil | 95 % | Claude Sonnet 5.5 ($2 / $10) |
+| Muy difícil | 100 % (el mejor) | Claude Opus 5.5 ($4 / $20) |
+
+"Muy difícil" cuesta el doble que "difícil" por poca mejora en el índice, así que solo se activa cuando Jev está bastante seguro: arquitectura de un sistema entero, un bug sutil entre muchos módulos o una migración. Un refactor de varios archivos sigue siendo "difícil".
 
 - El mínimo es relativo al mejor modelo disponible, así que se ajusta solo cuando salen modelos nuevos.
 - "Más barato" es el precio mezclado de OpenRouter: 3 partes de entrada por 1 de salida.
-- Los benchmarks se guardan en `~/.quillami/artificial-analysis.json` y se refrescan una vez al día (unas 4 de las 100 peticiones diarias del tier gratis). Si la API no responde, usa una copia incluida en Quillami con los modelos ya emparejados (o la caché, si es más reciente). Se regenera con `npm run benchmarks:snapshot`.
+- Los benchmarks se guardan en `~/.quillami/artificial-analysis.json` y se refrescan una vez al día (unas 4 de las 100 peticiones diarias del tier gratis). Si la API no responde, usa la última caché; sin caché, los cuatro modelos fijos.
+- Los datos son tuyos, con tu key: los términos del tier gratis de Artificial Analysis no permiten redistribuirlos, así que Quillami no trae ninguna copia.
 - Para limitar `auto` a ciertos proveedores: `QUILLAMI_AUTO_VENDORS=anthropic,openai,google` en `~/.quillami/.env`. El mínimo se calcula entonces sobre el mejor modelo de esos proveedores.
 
 #### No cambia de modelo sin motivo
@@ -357,9 +361,7 @@ src/permissions.ts   s/n/a por tool, plan, yolo, Jev
 src/diff.ts          diff de write/edit antes de aprobar
 src/jev.ts           cliente TypeSafe
 src/decisions.ts     riesgo, modo auto (dificultad, caché), memoria
-src/benchmarks.ts    Artificial Analysis: datos, emparejado con OpenRouter, elección por precio
-src/benchmarkSnapshot.ts  copia de respaldo (npm run benchmarks:snapshot)
-src/usage.ts         tokens, gasto y ahorro de auto
+src/benchmarks.ts    Artificial Analysis: datos, emparejado con OpenRouter, elección por preciosrc/usage.ts         tokens, gasto y ahorro de auto
 src/doctor.ts        quillami doctor
 src/providers.ts     cliente por proveedor (Anthropic, OpenRouter)
 src/openrouter.ts    catálogo, búsqueda y precios de OpenRouter
