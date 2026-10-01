@@ -1,0 +1,70 @@
+/* Quillami Code — tokens. Tema por defecto: Noche. Para Mediodía: <html data-theme="mediodia"> */
+@import url("fonts.css");
+
+:root, [data-theme="noche"] {
+  --fondo: #071619;
+  --superficie: #0E2327;
+  --superficie-hundida: #15323A;
+  --linea: #2C5760;
+  --linea-fuerte: #5E8D96;
+  --tinta: #FBFAF5;
+  --tinta-suave: #9FB3AE;
+  --sol: #FFC23D;
+  --on-sol: #071619;
+  --sol-texto: #FFC23D;
+  --horizonte: #FF6B4A;
+  --horizonte-texto: #FF6B4A;
+  --palma: #46D69A;
+  --palma-texto: #46D69A;
+  --acento: #4DD0E1;
+  --acento-texto: #4DD0E1;
+  --terminal-fondo: #071619;
+  --terminal-tinta: #FBFAF5;
+  --terminal-tenue: #9FB3AE;
+  --foco: #FFC23D;
+  --sombra-pico: 6px 6px 0 0 #FFC23D;
+  color-scheme: dark;
+}
+[data-theme="mediodia"] {
+  --fondo: #FBFAF5;
+  --superficie: #FFFFFF;
+  --superficie-hundida: #F1EEE4;
+  --linea: #D9D3C2;
+  --linea-fuerte: #7A6A48;
+  --tinta: #071619;
+  --tinta-suave: #4A5A57;
+  --sol-texto: #8A5800;
+  --horizonte-texto: #B8321A;
+  --palma-texto: #0D7049;
+  --acento-texto: #08687A;
+  --foco: #071619;
+  --sombra-pico: 6px 6px 0 0 #0B1D21;
+  color-scheme: light;
+}
+:root {
+  --esp-1: 4px;
+  --esp-2: 8px;
+  --esp-3: 12px;
+  --esp-4: 16px;
+  --esp-5: 24px;
+  --esp-6: 32px;
+  --esp-7: 48px;
+  --esp-8: 64px;
+  --esp-9: 96px;
+  --esp-10: 128px;
+  --radio-0: 0px;
+  --radio-s: 4px;
+  --radio-m: 10px;
+  --radio-sol: 9999px;
+  --font-display: "Poppins", "Arial Black", system-ui, sans-serif;
+  --font-texto: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Martian Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+.display-xl { font-family: var(--font-display); font-size: 88px; line-height: 1.0; font-weight: 800; letter-spacing: -0.02em; }
+.display-l { font-family: var(--font-display); font-size: 56px; line-height: 1.05; font-weight: 800; letter-spacing: -0.02em; }
+.titulo { font-family: var(--font-display); font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+.subtitulo { font-family: var(--font-texto); font-size: 22px; line-height: 1.4; font-weight: 500; }
+.cuerpo { font-family: var(--font-texto); font-size: 17px; line-height: 1.6; font-weight: 400; }
+.cuerpo-s { font-family: var(--font-texto); font-size: 14px; line-height: 1.5; font-weight: 400; }
+.etiqueta { font-family: var(--font-mono); font-size: 12px; line-height: 1.4; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.codigo { font-family: var(--font-mono); font-size: 14px; line-height: 1.7; font-weight: 400; }

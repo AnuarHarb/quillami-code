@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="es" data-theme="noche">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quillami Code — agente de código en la terminal</title>
+  <meta name="description" content="Agente de código para la terminal, hecho en el Caribe. Lee, busca, edita y corre comandos en tu proyecto, con tu permiso. El modelo más barato que cumple, en cada mensaje.">
+  <meta name="theme-color" content="#071619">
+  <link rel="canonical" href="https://anuarharb.github.io/quillami-code/">
+  <link rel="alternate" hreflang="es" href="https://anuarharb.github.io/quillami-code/">
+  <link rel="alternate" hreflang="en" href="https://anuarharb.github.io/quillami-code/en/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_CO">
+  <meta property="og:title" content="Quillami Code — agente de código en la terminal">
+  <meta property="og:description" content="No es un chatbot. Es un loop. Lee, busca, edita y corre comandos en tu proyecto, con tu permiso.">
+  <meta property="og:url" content="https://anuarharb.github.io/quillami-code/">
+  <meta property="og:image" content="https://anuarharb.github.io/quillami-code/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="app-icon/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="app-icon/app-icon-180.png">
+  <link rel="preload" href="fonts/Poppins-ExtraBold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/InstrumentSans-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="tokens/tokens.css">
+  <link rel="stylesheet" href="css/componentes.css">
+  <link rel="stylesheet" href="css/site.css">
+  <script src="js/copiar.js" defer></script>
+</head>
+<body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+  <header class="contenedor">
+    <div class="qc-nav sitio-nav">
+      <a class="sitio-nav__marca" href="./" aria-label="Quillami Code, inicio">
+        <img class="qc-nav__logo" src="logos/logo-horizontal-fondo-oscuro.svg" alt="Quillami Code" width="152" height="32">
+      </a>
+      <nav aria-label="Principal">
+        <ul class="qc-nav__links">
+          <li><a href="#auto">Modo auto</a></li>
+          <li><a href="#permisos">Permisos</a></li>
+          <li><a href="#capacidades">Lo que trae</a></li>
+          <li class="siempre"><a href="en/" hreflang="en" lang="en">English</a></li>
+          <li class="siempre"><a class="qc-btn qc-btn--secundario" href="https://github.com/AnuarHarb/quillami-code">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="contenido">
+    <section class="contenedor hero" aria-labelledby="titulo">
+      <div>
+        <p class="etiqueta">Agente de código · hecho en el Caribe</p>
+        <h1 id="titulo" class="display-xl">Programa con brisa.</h1>
+        <p class="subtitulo">Un agente de código en tu terminal. Lee, busca, edita y corre comandos en tu proyecto, con tu permiso. No es un chatbot: es un loop.</p>
+        <div class="qc-row">
+          <div class="qc-install">
+            <code><span class="qc-install__p" aria-hidden="true">$</span> npm install -g quillami-code</code>
+            <button type="button" data-copiar="npm install -g quillami-code" data-copiado="Copiado" data-fallo="Cópialo a mano" hidden>Copiar</button>
+          </div>
+          <a class="qc-btn qc-btn--primario" href="#instalar">Primeros pasos</a>
+        </div>
+        <p class="hero__nota cuerpo-s">Node 22 o más nuevo · licencia MIT · cientos de modelos con una sola key de OpenRouter</p>
+      </div>
+
+      <figure>
+        <figcaption class="solo-lector">Sesión de ejemplo: Quillami arregla un test que falla.</figcaption>
+        <div class="qc-term qc-term--hero">
+          <div class="qc-term__bar" aria-hidden="true"><img class="qc-term__logo" src="simbolo/simbolo.svg" alt="" width="27" height="16">quillami · ~/mi-proyecto</div>
+          <pre class="qc-term__body terminal terminal--escribe"><samp>
+<span class="l qc-t-dim" style="--i:0">Vamo' a darle, que el código no se escribe solo.</span>
+<span class="l" style="--i:1"><span class="qc-t-sol">›</span> <kbd>arregla el test de fechas que está fallando</kbd></span>
+<span class="l qc-t-ace" style="--i:2">· jev · estándar → MiMo V2.6 Pro · $0.435 / $0.87 por M</span>
+<span class="l" style="--i:3">· bash npm test</span>
+<span class="l" style="--i:4"><span class="qc-t-palma">✔</span> ¿Qué hago? <span class="qc-t-dim">Sí, y no preguntes más por bash en esta sesión</span></span>
+<span class="l qc-t-dim" style="--i:5">  <span class="qc-t-hor">exit 1</span> · 3.1 s · 42 líneas</span>
+<span class="l" style="--i:6">· edit src/fecha.ts</span>
+<span class="l" style="--i:7"><span class="qc-t-palma">✔</span> ¿Qué hago? <span class="qc-t-dim">Sí, solo esta vez</span></span>
+<span class="l" style="--i:8">· bash npm test</span>
+<span class="l qc-t-dim" style="--i:9">  <span class="qc-t-palma">exit 0</span> · 2.8 s · 38 líneas</span>
+<span class="l" style="--i:10">El test esperaba la fecha en UTC y la función usaba la hora local. Ahora formatea en UTC.</span>
+<span class="l qc-t-dim" style="--i:11">  tokens: 21.4k in · 640 out · sesión 22k · $0.01 esta sesión</span>
+<span class="l" style="--i:12"><span class="qc-t-sol">›</span> <span class="qc-cursor"></span></span>
+</samp></pre>
+        </div>
+      </figure>
+    </section>
+
+    <section id="loop" class="seccion" aria-labelledby="loop-titulo">
+      <div class="contenedor">
+        <div class="reflejo" aria-hidden="true"><span></span><span></span><span></span></div>
+        <header class="seccion__cabeza">
+          <h2 id="loop-titulo" class="display-l">No es un chatbot. Es un loop.</h2>
+          <p class="cuerpo">Le das una tarea. Quillami elige la herramienta, te pide permiso cuando va a cambiar algo, mira el resultado y sigue hasta terminar. Ctrl+C cancela el turno, no la sesión.</p>
+        </header>
+        <ol class="loop">
+          <li>
+            <h3>tarea</h3>
+            <p>Escribes lo que quieres, con tus palabras. También en una sola línea: <code>quillami "explica este archivo"</code>.</p>
+          </li>
+          <li>
+            <h3>tools</h3>
+            <p><code>read</code>, <code>grep</code>, <code>glob</code> y <code>ls</code> para mirar. <code>write</code>, <code>edit</code>, <code>bash</code> y <code>web_fetch</code> para actuar.</p>
+          </li>
+          <li>
+            <h3>permiso</h3>
+            <p>Todo lo que cambia algo pregunta primero, con el diff a la vista. Sí, no, o sí por el resto de la sesión.</p>
+          </li>
+          <li>
+            <h3>repite</h3>
+            <p>Lee la salida, corrige y vuelve a intentar. Hasta 20 vueltas por turno.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="auto" class="seccion" aria-labelledby="auto-titulo">
+      <div class="contenedor">
+        <header class="seccion__cabeza">
+          <p class="etiqueta">Modo auto</p>
+          <h2 id="auto-titulo" class="display-l">El más barato que cumple.</h2>
+          <p class="cuerpo">En cada mensaje, Jev (de <a href="https://typesafe.ai">TypeSafe</a>) mide qué tan difícil es la tarea y Quillami usa el modelo más barato que la resuelve bien. Una pregunta rápida no paga precio de Opus.</p>
+        </header>
+
+        <table class="niveles">
+          <caption class="cuerpo-s">Modelos de <code>auto</code> con OpenRouter. Precio en dólares por millón de tokens, entrada / salida.</caption>
+          <thead>
+            <tr><th scope="col">Dificultad</th><th scope="col">Modelo</th><th scope="col">Precio</th><th scope="col">Para qué</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Trivial</th><td>DeepSeek V4.1 Flash</td><td class="precio">$0.03 / $0.50</td><td>Una pregunta corta, un solo paso</td></tr>
+            <tr><th scope="row">Estándar</th><td>MiMo V2.6 Pro</td><td class="precio">$0.435 / $0.87</td><td>Programación normal en el repo</td></tr>
+            <tr><th scope="row">Difícil</th><td>Claude Sonnet 5.5</td><td class="precio">$2 / $10</td><td>Diseño, muchos archivos, debugging profundo</td></tr>
+            <tr><th scope="row">Muy difícil</th><td>Claude Opus 5.5</td><td class="precio">$4 / $20</td><td>Arquitectura de un sistema, bug sutil entre módulos</td></tr>
+          </tbody>
+        </table>
+
+        <div class="dos-columnas">
+          <div>
+            <p class="nota"><span class="rayita" aria-hidden="true"></span>Con una key gratis de <a href="https://artificialanalysis.ai">Artificial Analysis</a>, <code>auto</code> elige entre todo el catálogo de OpenRouter según benchmarks.</p>
+            <p class="nota">Sin key de Jev, usa MiMo V2.6 Pro en todos los mensajes. Con key de Anthropic, usa Haiku, Sonnet y Opus directos.</p>
+            <p class="nota"><code>/usage</code> te dice cuánto gastaste y cuánto te ahorraste frente a usar Claude Sonnet siempre.</p>
+          </div>
+          <figure>
+            <div class="qc-term">
+              <div class="qc-term__bar" aria-hidden="true"><span class="qc-term__sun"></span>/usage</div>
+              <pre class="qc-term__body terminal"><samp>
+<span class="l"><span class="qc-t-sol">›</span> <kbd>/usage</kbd></span>
+<span class="l">  turno    14.2k in (81% de caché) / 520 out  $0.0041</span>
+<span class="l">  sesión   186k in (74% de caché) / 6.3k out  $0.12</span>
+<span class="l">  auto     DeepSeek V4.1 Flash ×11 · MiMo V2.6 Pro ×5</span>
+<span class="l">           $0.12 vs $0.84 con Claude Sonnet siempre <span class="qc-t-palma">(ahorro 86%)</span></span>
+</samp></pre>
+            </div>
+            <figcaption class="cuerpo-s">Salida de <code>/usage</code> en una sesión de ejemplo.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="permisos" class="seccion" aria-labelledby="permisos-titulo">
+      <div class="contenedor dos-columnas">
+        <div>
+          <header class="seccion__cabeza">
+            <p class="etiqueta">Permisos</p>
+            <h2 id="permisos-titulo" class="display-l">Ves el diff antes de aprobar.</h2>
+            <p class="cuerpo"><code>write</code> y <code>edit</code> te muestran lo que sale y lo que entra antes de tocar el archivo. Eliges con las flechas y Enter, o directo con <kbd>s</kbd>, <kbd>n</kbd> o <kbd>a</kbd>. Esc es no.</p>
+          </header>
+          <ul class="lista">
+            <li>Jev aprueba solo los comandos inofensivos y frena los de riesgo alto.</li>
+            <li>“No preguntes más” vale solo para esa herramienta: aprobar <code>bash</code> no aprueba <code>write</code>.</li>
+            <li>En modo <code>plan</code> solo lee y termina con un plan. Nada se toca.</li>
+          </ul>
+        </div>
+        <figure>
+          <div class="qc-diff">
+            <div class="qc-diff__file">· edit src/fecha.ts · cambia un bloque</div>
+            <pre class="terminal"><samp>
+<span class="l qc-diff__l qc-diff__l--hunk">@@ -12,3 +12,3 @@</span>
+<span class="l qc-diff__l qc-diff__l--ctx"> export function formatear(fecha: Date) {</span>
+<span class="l qc-diff__l qc-diff__l--sale">-  return fecha.toLocaleDateString("es-CO");</span>
+<span class="l qc-diff__l qc-diff__l--entra">+  return fecha.toLocaleDateString("es-CO", { timeZone: "UTC" });</span>
+<span class="l qc-diff__l qc-diff__l--ctx"> }</span>
+</samp></pre>
+            <pre class="qc-diff__ask terminal"><samp>
+<span class="l"><span class="qc-t-sol">?</span> ¿Qué hago?</span>
+<span class="l"><span class="qc-t-sol">❯ ◯ Sí, solo esta vez</span></span>
+<span class="l">  ◯ No, no lo toques</span>
+<span class="l">  ◯ Sí, y no preguntes más por edit en esta sesión</span>
+<span class="l qc-t-dim">  ↑↓ moverse · espacio marcar · enter elegir · esc cancelar</span>
+</samp></pre>
+          </div>
+          <figcaption class="cuerpo-s">Así pregunta Quillami antes de editar un archivo.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="capacidades" class="seccion mediodia" data-theme="mediodia" aria-labelledby="capacidades-titulo">
+      <div class="contenedor">
+        <header class="seccion__cabeza">
+          <h2 id="capacidades-titulo" class="display-l">Lo que trae.</h2>
+          <p class="cuerpo">Lo necesario para trabajar en un repo de verdad, sin configurar nada más que tus keys.</p>
+        </header>
+        <ul class="tarjetas">
+          <li><article>
+            <span class="qc-chip"><code>/skills</code></span>
+            <h3>Skills</h3>
+            <p>Usa las skills que ya tienes en <code>.claude/skills</code> o <code>.agents/skills</code>. Carga la que aplica, o la fuerzas con <code>/nombre</code>.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>/model</code></span>
+            <h3>OpenRouter</h3>
+            <p>Cientos de modelos con una sola key. <code>/model</code> abre la lista y buscas escribiendo.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>/mcp</code></span>
+            <h3>MCP</h3>
+            <p>Conecta servidores por stdio o HTTP en <code>~/.quillami/mcp.json</code>.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>quillami -c</code></span>
+            <h3>Sesiones</h3>
+            <p>Retoma la última conversación del repo. <code>/sessions</code> lista las demás.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>/mode</code></span>
+            <h3>Modos</h3>
+            <p><code>agent</code> pregunta, <code>plan</code> solo lee y propone, <code>yolo</code> aprueba solo. La lista negra y Jev siguen activos.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>QUILLAMI.md</code></span>
+            <h3>Memoria</h3>
+            <p><code>QUILLAMI.md</code> o <code>AGENTS.md</code> para el repo. <code>~/.quillami</code> para lo que aprende de ti.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><code>web_fetch</code></span>
+            <h3>Web segura</h3>
+            <p>Lee páginas públicas. Bloquea localhost, redes privadas y redirecciones hacia ellas.</p>
+          </article></li>
+          <li><article>
+            <span class="qc-chip"><kbd>Ctrl+C</kbd></span>
+            <h3>Cancela sin miedo</h3>
+            <p>Corta el turno, no la sesión. <code>/undo</code> deshace los cambios del último turno.</p>
+          </article></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="instalar" class="franja-sol" aria-labelledby="instalar-titulo">
+      <div class="contenedor">
+        <h2 id="instalar-titulo" class="display-l">Instálalo.</h2>
+        <div class="qc-install">
+          <code><span class="qc-install__p" aria-hidden="true">$</span> npm install -g quillami-code</code>
+          <button type="button" data-copiar="npm install -g quillami-code" data-copiado="Copiado" data-fallo="Cópialo a mano" hidden>Copiar</button>
+        </div>
+        <ol class="pasos">
+          <li><p class="cuerpo">Instala con npm. Necesitas Node 22 o más nuevo.</p></li>
+          <li><p class="cuerpo">Corre <code>quillami</code> en tu proyecto. La primera vez marcas tus keys con la barra espaciadora: OpenRouter y Jev son las recomendadas.</p></li>
+          <li><p class="cuerpo">Escribe la tarea. Quillami te pregunta antes de tocar algo.</p></li>
+        </ol>
+        <a class="qc-btn qc-btn--secundario" href="https://github.com/AnuarHarb/quillami-code#readme">Lee la guía completa</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="contenedor pie">
+    <div class="pie__arriba">
+      <img class="pie__logo" src="logos/logo-principal-fondo-oscuro.svg" alt="Quillami Code" width="149" height="88">
+      <nav aria-label="Enlaces del proyecto">
+        <ul>
+          <li><a href="https://github.com/AnuarHarb/quillami-code">GitHub</a></li>
+          <li><a href="https://www.npmjs.com/package/quillami-code">npm</a></li>
+          <li><a href="https://github.com/AnuarHarb/quillami-code/issues">Reportar un problema</a></li>
+          <li><a href="en/" hreflang="en" lang="en">English</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="qc-franjas" aria-hidden="true"><span></span><span></span><span></span></div>
+    <p class="pie__legal cuerpo-s">Hecho en Barranquilla · Licencia MIT · © 2026 Anuar Harb</p>
+  </footer>
+</body>
+</html>

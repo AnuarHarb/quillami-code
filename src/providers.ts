@@ -44,7 +44,7 @@ export function createClient(model: ModelChoice): Anthropic {
       authToken: key,
       baseURL: process.env.OPENROUTER_BASE_URL?.trim() || OPENROUTER_BASE_URL,
       defaultHeaders: {
-        "HTTP-Referer": "https://github.com/AnuarHarb/killa-code",
+        "HTTP-Referer": "https://github.com/AnuarHarb/quillami-code",
         "X-Title": "Quillami Code",
       },
     });

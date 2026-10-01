@@ -1,3 +1,5 @@
+import { sol } from "./banner.js";
+
 export type AgentMode = "agent" | "plan" | "yolo";
 
 export function formatModeLabel(mode: AgentMode): string {
@@ -7,7 +9,6 @@ export function formatModeLabel(mode: AgentMode): string {
 }
 
 export function promptPrefix(mode: AgentMode): string {
-  if (mode === "plan") return "plan> ";
-  if (mode === "yolo") return "yolo> ";
-  return "> ";
+  const label = mode === "agent" ? "" : mode;
+  return `${label}${sol("›")} `;
 }

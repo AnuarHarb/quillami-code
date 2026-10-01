@@ -14,11 +14,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AnuarHarb/killa-code.git"
+    "url": "git+https://github.com/AnuarHarb/quillami-code.git"
   },
-  "homepage": "https://github.com/AnuarHarb/killa-code#readme",
+  "homepage": "https://github.com/AnuarHarb/quillami-code#readme",
   "bugs": {
-    "url": "https://github.com/AnuarHarb/killa-code/issues"
+    "url": "https://github.com/AnuarHarb/quillami-code/issues"
   },
   "keywords": [
     "cli",

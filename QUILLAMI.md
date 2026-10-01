@@ -38,6 +38,8 @@ Agente de código en TypeScript. Los usuarios lo instalan con `npm install -g qu
 
 One-shot: `quillami "tu prompt"` (un turno y sale). Sin TTY niega tools salvo `--yolo`.
 
+Landing: `site/` (HTML y CSS sin build; `index.html` en español, `en/index.html` en inglés). `tokens/`, `css/componentes.css`, `fonts/`, `logos/`, `simbolo/` y `app-icon/` vienen tal cual del sistema de diseño; lo propio va en `css/site.css`. Las terminales de la página muestran salida real del CLI. Se publica en GitHub Pages con `.github/workflows/pages.yml` al cambiar `site/`. No entra al paquete de npm (`files: ["dist"]`).
+
 Los tests del harness: `npm test`. Los evals del agente: `npm run eval` (necesitan API key). CI en `.github/workflows/ci.yml`. Después de cambiar el código, corre `npm run build` para que el comando `quillami` se actualice.
 
 No commitear `.env`. La API key puede vivir en `.env` del proyecto o en `~/.quillami/.env`. Sigue leyendo `~/.killami/.env` si migras desde Killami.

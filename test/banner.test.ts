@@ -3,9 +3,9 @@ import { describe, it } from "node:test";
 import { renderLogo } from "../src/banner.ts";
 
 describe("startup logo", () => {
-  it("draws the sun, the horizon, and the palm with half blocks", () => {
+  it("draws the sun, the horizon, and the reflections with half blocks", () => {
     const lines = renderLogo("none");
-    assert.equal(lines.length, 9);
+    assert.equal(lines.length, 8);
     assert.ok(lines.every((line) => !line.includes("\x1b")));
     assert.match(lines.join("\n"), /█{22}/);
   });

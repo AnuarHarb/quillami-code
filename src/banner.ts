@@ -12,41 +12,36 @@ const PHRASES = [
 type Rgb = readonly [number, number, number];
 export type ColorMode = "truecolor" | "256" | "none";
 
-/** Brand palette (Sol, Horizonte, Acento); the palm and its island are not brand colors. */
+/** Brand palette: Sol, Horizonte, Acento. */
 const PALETTE: Record<string, Rgb> = {
   S: [0xff, 0xc2, 0x3d],
   H: [0xff, 0x6b, 0x4a],
   A: [0x4d, 0xd0, 0xe1],
-  F: [0x3f, 0xa3, 0x4d],
-  T: [0xa0, 0x6b, 0x3c],
-  D: [0xe8, 0xc8, 0x87],
 };
 
 /**
  * One character per square pixel, `.` is empty; two pixel rows make one
  * terminal row. The symbol is the brand's "acentos en ambos lados" variant:
- * sun, horizon with sea accents, and three reflections. The palm stands apart
- * on its own island, since the brand forbids adding elements to the symbol.
+ * sun, horizon with sea accents, and three reflections. The brand forbids
+ * adding elements to it.
  */
 const LOGO = [
-  "........................ ...FFFF.FFFF..",
-  "........................ .FFFFFFFFFFFFF",
-  "........................ FFF..FTTF...FF",
-  ".........SSSS........... F....FTT.F...F",
-  ".......SSSSSSSS......... ......TT......",
-  "......SSSSSSSSSS........ ......TT......",
-  "......SSSSSSSSSS........ .....TT.......",
-  ".....SSSSSSSSSSSS....... .....TT.......",
-  ".....SSSSSSSSSSSS....... ....TT........",
-  "........................ ....TT........",
-  "AAHHHHHHHHHHHHHHHHHHAA.. ..DDDDDDDD....",
-  "AAHHHHHHHHHHHHHHHHHHAA.. .DDDDDDDDDD...",
-  "........................ ..............",
-  "......SSSSSSSSSS........ ..............",
-  "........................ ..............",
-  "........SSSSSS.......... ..............",
-  "........................ ..............",
-  ".........SSSS........... ..............",
+  "......................",
+  ".........SSSS.........",
+  ".......SSSSSSSS.......",
+  "......SSSSSSSSSS......",
+  "......SSSSSSSSSS......",
+  ".....SSSSSSSSSSSS.....",
+  ".....SSSSSSSSSSSS.....",
+  "......................",
+  "AAHHHHHHHHHHHHHHHHHHAA",
+  "AAHHHHHHHHHHHHHHHHHHAA",
+  "......................",
+  "......SSSSSSSSSS......",
+  "......................",
+  "........SSSSSS........",
+  "......................",
+  ".........SSSS.........",
 ];
 
 const WORDMARK = "Quillami Code";
@@ -80,6 +75,12 @@ export function green(text: string): string {
 
 export function cyan(text: string): string {
   return paint("36", text);
+}
+
+export function sol(text: string): string {
+  const mode = colorMode();
+  if (mode === "none") return text;
+  return `\x1b[${sgr(PALETTE.S, "fg", mode)}m${text}\x1b[0m`;
 }
 
 /** Nearest color in the xterm 6×6×6 cube, for terminals without 24-bit color. */

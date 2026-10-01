@@ -1,8 +1,8 @@
 # Quillami Code
 
-*[Español](README.md)*
+*[Español](README.md) · [Website](https://anuarharb.github.io/quillami-code/en/)*
 
-A coding agent for your terminal, born on the **Colombian Caribbean coast**: sun, palms, sea, a coastal Spanish line, then code in whatever repo you are in.
+A coding agent for your terminal, born on the **Colombian Caribbean coast**: sun, horizon, sea, a coastal Spanish line, then code in whatever repo you are in.
 
 Not a chatbot—a loop: you assign work, the model calls tools, Quillami runs them (with permission when disk or network is involved) until the job is done.
 
@@ -126,7 +126,7 @@ quillami setup                # add or change keys and the default model
 | **plan** | `--plan`, `/mode plan` | Read-only; model ends with a plan |
 | **yolo** | `--yolo`, `/mode yolo` | Auto-approve; bash denylist and Jev blocks remain |
 
-Prompt prefix: `plan> ` or `yolo> ` when applicable.
+The prompt is `›`, or `plan› ` / `yolo› ` in those modes.
 
 ## Sessions
 

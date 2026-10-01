@@ -1,8 +1,8 @@
 # Quillami Code
 
-*[English](README.en.md)*
+*[English](README.en.md) · [Sitio web](https://anuarharb.github.io/quillami-code/)*
 
-Agente de código en la terminal, nacido en el **Caribe colombiano**: sol, palma, mar, una frase costeña y a programar en el repo donde estés.
+Agente de código en la terminal, nacido en el **Caribe colombiano**: sol, horizonte, mar, una frase costeña y a programar en el repo donde estés.
 
 No es un chatbot. Es un loop: tú das la tarea, el modelo pide herramientas, Quillami las ejecuta (con permiso si toca disco) y repite hasta terminar.
 
@@ -151,7 +151,7 @@ quillami setup                      # agrega o cambia keys y modelo por defecto
 | **plan** | `--plan`, `/mode plan` | Solo lectura; el modelo termina con un plan (sin write/bash/MCP) |
 | **yolo** | `--yolo`, `/mode yolo` | Auto-aprueba tools; denylist en `bash` y bloqueos Jev siguen |
 
-En plan, el prompt muestra `plan> `; en yolo, `yolo> `.
+El prompt es `›`; en plan muestra `plan› ` y en yolo `yolo› `.
 
 ## Sesiones
 
