@@ -18,6 +18,7 @@ TypeScript, MIT, sin frameworks de orquestación. Este repo es el agente y un lu
 - Memoria global en `~/.quillami`: `soul.md`, `user.md`, `behaviors.md`
 - Compacta el historial cuando la sesión crece (~20k tokens)
 - Modelos Anthropic y MiniMax; cambio al vuelo con `/model`
+- **Jev (opcional):** capa de decisiones tipadas ([TypeSafe](https://typesafe.ai)) — permisos más inteligentes, `/model auto`, propuesta de memoria al cerrar el turno. Sin `TYPESAFE_API_KEY` todo funciona como antes.
 
 El workspace es la carpeta desde la que lanzas `quillami`, no necesariamente este repo.
 
@@ -66,7 +67,17 @@ Permisos para acciones sensibles:
 
 `/undo` restaura archivos tocados por `write`/`edit` en el último turno (no deshace `bash`).
 
-Comandos útiles: `/model`, `/login`, `/memory`, `/projects`, `/usage`, `/undo`.
+Comandos útiles: `/model`, `/login`, `/login typesafe`, `/memory`, `/projects`, `/usage`, `/undo`.
+
+## Decisiones con Jev
+
+Jev no reemplaza a Claude: no escribe respuestas ni llama tools. El código le hace preguntas tipadas (Score/Noul) y aplica umbrales en TypeScript.
+
+- **Permisos:** `bash` de solo lectura con alta confianza puede auto-aprobarse; comandos muy riesgosos se bloquean; `write`/`edit` siguen pidiendo siempre. Denylist fija (`sudo`, `rm -rf`, `git push`, etc.) nunca auto-aprueba.
+- **Modelo `auto`:** Jev estima complejidad del mensaje y elige Haiku, Sonnet u Opus (solo con `ANTHROPIC_API_KEY`).
+- **Memoria:** si el turno no usó `remember_user`, Jev puede proponer una línea para `user.md` o `behaviors.md` (tú confirmas s/n).
+
+Key: `/login typesafe` o `TYPESAFE_API_KEY` en `~/.quillami/.env`. Apagar: `QUILLAMI_JEV=0`. Uso de Jev en `/usage` (tokens, sin USD).
 
 ## Modelos
 
@@ -77,6 +88,7 @@ quillami -m minimax
 
 | alias | modelo | proveedor |
 |-------|--------|-----------|
+| `auto` | Haiku / Sonnet / Opus por turno | Anthropic (Jev) |
 | `sonnet` | Sonnet 5 | Anthropic |
 | `sonnet-4.5` | Sonnet 4.5 | Anthropic (default con Claude) |
 | `opus` | Opus 5 | Anthropic |

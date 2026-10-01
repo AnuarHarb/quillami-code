@@ -3,8 +3,11 @@ import { createInterface, type Interface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { dim, printBanner } from "./banner.js";
 import { CONFIG_DIR_NAME, PROJECT_MEMORY_FILE } from "./config.js";
+import { maybeProposeAutoMemory } from "./autoMemory.js";
 import { runTurn, type History } from "./agent/loop.js";
-import { hasKey, promptAndSaveKey } from "./auth.js";
+import { assessMessageComplexity } from "./decisions.js";
+import { hasKey, promptAndSaveKey, promptAndSaveNamedKey } from "./auth.js";
+import { formatJevModelPick, jevBannerLine, jevEnabled } from "./jev.js";
 import { createCheckpointStore, type UndoResult } from "./checkpoint.js";
 import { loadEnv } from "./env.js";
 import { listMemoryFiles } from "./memory.js";
@@ -13,11 +16,12 @@ import {
   defaultModel,
   formatModelLine,
   formatModelList,
+  isAutoModel,
   MINIMAX_M3_ID,
   resolveModel,
   type ModelChoice,
 } from "./models.js";
-import { createGate } from "./permissions.js";
+import { createAssessRisk, createGate } from "./permissions.js";
 import { keyEnvFor, type Provider } from "./providers.js";
 import { createUsageLedger } from "./usage.js";
 import {
@@ -90,9 +94,17 @@ async function handleSlash(
   const arg = rest.join(" ").trim();
 
   if (command === "/login") {
-    const provider = resolveLoginProvider(arg) ?? current.provider;
     rl.pause();
-    await promptAndSaveKey(provider);
+    if (resolveTypesafeLogin(arg)) {
+      await promptAndSaveNamedKey(
+        "TYPESAFE_API_KEY",
+        "TypeSafe (Jev)",
+        "https://typesafe.ai",
+      );
+    } else {
+      const provider = resolveLoginProvider(arg) ?? current.provider;
+      await promptAndSaveKey(provider);
+    }
     rl.resume();
     return { model: current, handled: true };
   }
@@ -147,6 +159,11 @@ function resolveLoginProvider(raw: string): Provider | null {
   return null;
 }
 
+function resolveTypesafeLogin(raw: string): boolean {
+  const needle = raw.trim().toLowerCase();
+  return needle === "typesafe" || needle === "jev";
+}
+
 async function main(): Promise<void> {
   loadEnv();
 
@@ -190,7 +207,16 @@ async function main(): Promise<void> {
         : `   memoria: ninguna (puedes crear ${PROJECT_MEMORY_FILE})`,
     ),
   );
-  console.log(dim(`   modelo: ${formatModelLine(model)}`));
+  if (isAutoModel(model)) {
+    console.log(
+      dim(
+        `   modelo: auto · ${jevEnabled() ? "Jev elige Haiku/Sonnet/Opus en cada mensaje" : "sin Jev → Sonnet 4.5 por turno"}`,
+      ),
+    );
+  } else {
+    console.log(dim(`   modelo: ${formatModelLine(model)}`));
+  }
+  console.log(dim(`   ${jevBannerLine()}`));
   console.log(dim(`   memoria global: soul, user, behaviors (~/${CONFIG_DIR_NAME})`));
   console.log(dim("   write, edit, bash y remember_user piden permiso (s / n / a)."));
   console.log(dim("   /memory /projects /soul /user /behaviors · /model · /login"));
@@ -200,13 +226,16 @@ async function main(): Promise<void> {
   const history: History = [];
   const checkpoints = createCheckpointStore();
   const usage = createUsageLedger();
-  const gate = createGate(async (prompt) => {
-    try {
-      return await rl.question(prompt);
-    } catch {
-      return "n";
-    }
-  });
+  const gate = createGate(
+    async (prompt) => {
+      try {
+        return await rl.question(prompt);
+      } catch {
+        return "n";
+      }
+    },
+    jevEnabled() ? { assessRisk: createAssessRisk(process.cwd()) } : undefined,
+  );
 
   try {
     while (true) {
@@ -233,7 +262,38 @@ async function main(): Promise<void> {
       if (slash.handled) continue;
 
       try {
-        await runTurn(input, history, gate, model, checkpoints, usage);
+        let turnModel = model;
+        let turnNote: string | undefined;
+        if (isAutoModel(model)) {
+          const routed = await assessMessageComplexity(input);
+          turnModel = routed.model;
+          process.stdout.write(
+            `\n${formatJevModelPick(turnModel, routed.reason)}\n`,
+          );
+          turnNote = `jev → ${turnModel.label}`;
+        }
+
+        const turn = await runTurn(
+          input,
+          history,
+          gate,
+          turnModel,
+          checkpoints,
+          usage,
+          { turnNote },
+        );
+        await maybeProposeAutoMemory(
+          input,
+          turn.rememberUserCalled,
+          turnModel,
+          async (prompt) => {
+            try {
+              return await rl.question(prompt);
+            } catch {
+              return "n";
+            }
+          },
+        );
         console.log(dim(usage.turnLine()));
         console.log("");
       } catch (error) {

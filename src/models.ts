@@ -22,6 +22,7 @@ const HAIKU_PRICE = { inputPerMillion: 1, outputPerMillion: 5 };
 const MINIMAX_M3_PRICE = { inputPerMillion: 0.3, outputPerMillion: 1.2 };
 
 export const MINIMAX_M3_ID = "MiniMax-M3";
+export const AUTO_MODEL_ID = "auto";
 
 export const MODELS: ModelChoice[] = [
   {
@@ -76,10 +77,31 @@ export const MODELS: ModelChoice[] = [
 
 export const DEFAULT_MODEL_ID = "claude-sonnet-4-5";
 
+export function isAutoModel(model: ModelChoice): boolean {
+  return model.id === AUTO_MODEL_ID;
+}
+
+function autoModelChoice(): ModelChoice | null {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!anthropicKey) return null;
+  return {
+    id: AUTO_MODEL_ID,
+    alias: "auto",
+    label: "Auto",
+    provider: "anthropic",
+    blurb: "Jev elige Haiku / Sonnet / Opus por turno",
+    price: SONNET45_PRICE,
+  };
+}
+
 export function resolveModel(raw: string | undefined): ModelChoice | null {
   if (!raw) return null;
   const needle = raw.trim().toLowerCase();
   if (!needle) return null;
+
+  if (needle === "auto") {
+    return autoModelChoice();
+  }
 
   const listed = MODELS.find(
     (model) =>
@@ -142,9 +164,20 @@ export function priceForModel(id: string): ModelPrice {
 }
 
 export function formatModelList(currentId: string): string {
-  return MODELS.map((model) => {
+  const lines: string[] = [];
+  const auto = autoModelChoice();
+  if (auto) {
+    const mark = auto.id === currentId ? "*" : " ";
+    lines.push(
+      `  ${mark} ${auto.alias.padEnd(10)} ${auto.label.padEnd(14)} Anthropic  ${auto.blurb}`,
+    );
+  }
+  lines.push(
+    ...MODELS.map((model) => {
     const mark = model.id === currentId ? "*" : " ";
     const tag = model.provider === "minimax" ? "MiniMax" : "Anthropic";
-    return `  ${mark} ${model.alias.padEnd(10)} ${model.label.padEnd(14)} ${tag.padEnd(10)} ${model.blurb}`;
-  }).join("\n");
+      return `  ${mark} ${model.alias.padEnd(10)} ${model.label.padEnd(14)} ${tag.padEnd(10)} ${model.blurb}`;
+    }),
+  );
+  return lines.join("\n");
 }

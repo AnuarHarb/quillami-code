@@ -1,24 +1,69 @@
 import { dim } from "./banner.js";
 import { CONFIG_DIR_NAME } from "./config.js";
+import {
+  applyRiskPolicy,
+  assessToolRisk,
+  type RiskInput,
+  type RiskPolicyResult,
+} from "./decisions.js";
 
 const RISKY_TOOLS = new Set(["write", "edit", "bash", "remember_user"]);
 
 export type AskFn = (prompt: string) => Promise<string>;
 
-export type PermissionGate = {
-  authorize(name: string, input: unknown): Promise<boolean>;
+export type AssessRiskFn = (
+  name: string,
+  input: unknown,
+) => Promise<RiskPolicyResult | null>;
+
+export type AuthorizeResult = {
+  allowed: boolean;
+  toolMessage?: string;
 };
 
-export function createGate(ask: AskFn): PermissionGate {
+export type PermissionGate = {
+  authorize(name: string, input: unknown): Promise<AuthorizeResult>;
+};
+
+export function createGate(
+  ask: AskFn,
+  options?: { assessRisk?: AssessRiskFn },
+): PermissionGate {
   let allowSession = false;
 
   return {
     async authorize(name, input) {
-      if (!RISKY_TOOLS.has(name) || allowSession) {
-        return true;
+      if (!RISKY_TOOLS.has(name)) {
+        return { allowed: true };
       }
 
-      const detail = describeAction(name, input);
+      const riskInput = toRiskInput(name, input);
+      let policy: RiskPolicyResult | null = null;
+      if (options?.assessRisk) {
+        policy = await options.assessRisk(name, input);
+      } else if (riskInput) {
+        policy = applyRiskPolicy(name, riskInput, null);
+      }
+
+      if (policy?.action === "allow") {
+        process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
+        return { allowed: true };
+      }
+
+      if (policy?.action === "deny") {
+        process.stdout.write(`${dim(`  ${policy.note}`)}\n`);
+        return {
+          allowed: false,
+          toolMessage: policy.toolMessage,
+        };
+      }
+
+      const forceAsk = policy?.forceAsk ?? false;
+      if (allowSession && !forceAsk) {
+        return { allowed: true };
+      }
+
+      const detail = describeAction(name, input, policy?.note);
       if (detail) {
         process.stdout.write(`${dim(`  ${detail}`)}\n`);
       }
@@ -32,36 +77,72 @@ export function createGate(ask: AskFn): PermissionGate {
       const decision = await askDecision(ask);
       if (decision === "deny") {
         process.stdout.write(`${dim("  Listo, no lo toco.")}\n`);
-        return false;
+        return { allowed: false };
       }
-      if (decision === "allow_session") {
+      if (decision === "allow_session" && !forceAsk) {
         allowSession = true;
         process.stdout.write(`${dim("  Va, esta sesión no pregunto más.")}\n`);
       }
-      return true;
+      return { allowed: true };
     },
   };
 }
 
-function describeAction(name: string, input: unknown): string {
+export function createAssessRisk(workspace: string): AssessRiskFn {
+  return async (name, input) => {
+    const riskInput = toRiskInput(name, input);
+    if (!riskInput) return null;
+    if (workspace) {
+      riskInput.workspace = workspace;
+    }
+
+    const jev = name === "bash" ? await assessToolRisk(riskInput) : null;
+    return applyRiskPolicy(name, riskInput, jev);
+  };
+}
+
+function toRiskInput(name: string, input: unknown): RiskInput | null {
   const args = asRecord(input);
+  if (name === "bash") {
+    const command = stringArg(args.command);
+    if (!command) return null;
+    return {
+      tool: "bash",
+      command,
+      workspace: process.cwd(),
+    };
+  }
+  if (name === "write" || name === "edit") {
+    return {
+      tool: name,
+      path: stringArg(args.path),
+      workspace: process.cwd(),
+    };
+  }
+  if (name === "remember_user") {
+    return { tool: "remember_user", workspace: process.cwd() };
+  }
+  return null;
+}
+
+function describeAction(
+  name: string,
+  input: unknown,
+  riskNote?: string,
+): string {
+  const args = asRecord(input);
+  let base = "";
 
   if (name === "bash") {
-    return "Esto corre en tu máquina.";
-  }
-
-  if (name === "write") {
+    base = "Esto corre en tu máquina.";
+  } else if (name === "write") {
     const filePath = stringArg(args.path);
     const content = stringArg(args.content);
     const lines = content.split("\n").length;
-    return `${filePath} · ${lines} ${lines === 1 ? "línea" : "líneas"} · crea o sobrescribe`;
-  }
-
-  if (name === "edit") {
-    return `${stringArg(args.path)} · cambia un bloque`;
-  }
-
-  if (name === "remember_user") {
+    base = `${filePath} · ${lines} ${lines === 1 ? "línea" : "líneas"} · crea o sobrescribe`;
+  } else if (name === "edit") {
+    base = `${stringArg(args.path)} · cambia un bloque`;
+  } else if (name === "remember_user") {
     const target = stringArg(args.target);
     const file =
       target === "soul"
@@ -71,10 +152,13 @@ function describeAction(name: string, input: unknown): string {
           : target === "behaviors"
             ? "behaviors.md"
             : "memoria global";
-    return `Guardo en ~/${CONFIG_DIR_NAME}/${file}`;
+    base = `Guardo en ~/${CONFIG_DIR_NAME}/${file}`;
   }
 
-  return "";
+  if (riskNote) {
+    return base ? `${base} ${riskNote}` : riskNote;
+  }
+  return base;
 }
 
 async function askDecision(ask: AskFn): Promise<"allow" | "deny" | "allow_session"> {

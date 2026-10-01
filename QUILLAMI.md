@@ -9,7 +9,9 @@ Agente de código en TypeScript. Los usuarios lo instalan con `npm install -g qu
 - Tokens: `src/usage.ts` — gasto por turno/sesión/total; `/usage`
 - Modelos: `src/models.ts` — Anthropic + MiniMax; `quillami --model minimax` o `/model`
 - Proveedores: `src/providers.ts` — cliente Anthropic SDK con baseURL de MiniMax
-- Keys: `src/auth.ts` — prompt oculto, guarda en `~/.quillami/.env`; `/login`
+- Keys: `src/auth.ts` — prompt oculto, guarda en `~/.quillami/.env`; `/login`, `/login typesafe`
+- Jev: `src/jev.ts` — cliente TypeSafe (`TYPESAFE_API_KEY`), timeout ~4s, fallback silencioso
+- Decisiones: `src/decisions.ts` — riesgo de permisos, router `auto`, memoria al fin del turno
 - Memoria global: `src/userMemory.ts` — `~/.quillami/soul.md`, `user.md`, `behaviors.md`, `projects.json`; `/memory`, `/projects`
 - Tools: `src/tools.ts` (`read`, `write`, `edit`, `bash`, `grep`, `glob`, `ls`, `remember_user`)
 - Permisos: `src/permissions.ts` — `write`, `edit`, `bash` y `remember_user` preguntan s/n/a

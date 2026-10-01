@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_DIR_NAME, configDir } from "./config.js";
+import { looksLikeSecret } from "./decisions.js";
 import { estimateTokens } from "./tokens.js";
 
 export type MemoryTarget = "soul" | "user" | "behaviors";
@@ -333,6 +334,9 @@ export async function rememberUser(input: Record<string, unknown>): Promise<stri
   const content = typeof input.content === "string" ? input.content.trim() : "";
   if (!content) {
     throw new Error("missing content");
+  }
+  if (looksLikeSecret(content)) {
+    throw new Error("refused: content looks like a secret or API key");
   }
 
   ensureTemplates();

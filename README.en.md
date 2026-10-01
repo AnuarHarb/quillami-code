@@ -16,6 +16,7 @@ TypeScript, MIT, no orchestration frameworks. This repo is the agent and a bluep
 - Global memory under `~/.quillami`: `soul.md`, `user.md`, `behaviors.md`
 - History compaction around ~20k tokens
 - Anthropic + MiniMax models; `/model` to switch
+- Optional **Jev** ([TypeSafe](https://typesafe.ai)) decision layer: smarter bash permissions, `/model auto`, end-of-turn memory suggestions. Without `TYPESAFE_API_KEY`, behavior is unchanged.
 
 The workspace is the directory you launch `quillami` from.
 
@@ -43,7 +44,17 @@ quillami
 
 Type at the `>` prompt. `/exit` quits. Sensitive tools ask **s / n / a** (once, no, always this session). `/undo` restores files from the last turn’s `write`/`edit`.
 
-Slash commands: `/model`, `/login`, `/memory`, `/projects`, `/usage`, `/undo`.
+Slash commands: `/model`, `/login`, `/login typesafe`, `/memory`, `/projects`, `/usage`, `/undo`.
+
+## Jev decisions
+
+Jev does not replace the LLM. Quillami asks typed questions (Score/Noul) and applies thresholds in code.
+
+- **Permissions:** low-risk read-only `bash` may auto-approve; high-risk commands are blocked; `write`/`edit` always ask. A fixed denylist never auto-approves.
+- **`auto` model:** Jev picks Haiku, Sonnet, or Opus per turn (Anthropic key required).
+- **Memory:** after a turn without `remember_user`, Jev may suggest one line for `user.md` or `behaviors.md` (you confirm y/n).
+
+Set `TYPESAFE_API_KEY` or `/login typesafe`. Disable with `QUILLAMI_JEV=0`. Jev token counts appear in `/usage`.
 
 ## Models
 

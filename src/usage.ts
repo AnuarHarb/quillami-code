@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { configDir } from "./config.js";
+import { formatJevSessionUsage } from "./jev.js";
 import { priceForModel } from "./models.js";
 import { formatTokenCount, formatUsd } from "./tokens.js";
 
@@ -13,7 +14,7 @@ export type UsageTotals = {
 };
 
 export type UsageLedger = {
-  beginTurn(): void;
+  beginTurn(options?: { turnNote?: string }): void;
   record(model: string, usage: unknown): void;
   turnLine(): string;
   report(): string;
@@ -36,10 +37,12 @@ export function createUsageLedger(options?: {
   let lifetime = persist ? loadLifetime(file) : empty();
   let session = empty();
   let turn = empty();
+  let turnNote: string | undefined;
 
   return {
-    beginTurn() {
+    beginTurn(options) {
       turn = empty();
+      turnNote = options?.turnNote;
     },
 
     record(model, usage) {
@@ -54,8 +57,10 @@ export function createUsageLedger(options?: {
     },
 
     turnLine() {
+      const note = turnNote ? ` · ${turnNote}` : "";
       return (
         `  tokens: ${formatTokenCount(turn.input)} in · ${formatTokenCount(turn.output)} out` +
+        note +
         ` · sesión ${formatTokenCount(session.input + session.output)}` +
         ` · ${formatUsd(session.usd)} esta sesión` +
         ` · ${formatUsd(lifetime.usd)} en total`
@@ -63,11 +68,14 @@ export function createUsageLedger(options?: {
     },
 
     report() {
-      return [
+      const lines = [
         `  turno    ${formatTokenCount(turn.input)} in / ${formatTokenCount(turn.output)} out  ${formatUsd(turn.usd)}`,
         `  sesión   ${formatTokenCount(session.input)} in / ${formatTokenCount(session.output)} out  ${formatUsd(session.usd)}`,
         `  total    ${formatTokenCount(lifetime.input)} in / ${formatTokenCount(lifetime.output)} out  ${formatUsd(lifetime.usd)}`,
-      ].join("\n");
+      ];
+      const jev = formatJevSessionUsage();
+      if (jev) lines.push(jev);
+      return lines.join("\n");
     },
   };
 }

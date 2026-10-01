@@ -14,19 +14,27 @@ import {
 export { hasKey };
 
 export async function promptAndSaveKey(provider: Provider): Promise<boolean> {
-  const envVar = keyEnvFor(provider);
-  const label = providerLabel(provider);
-  const url = keyHelpUrl(provider);
+  return promptAndSaveNamedKey(
+    keyEnvFor(provider),
+    `${providerLabel(provider)} API key`,
+    keyHelpUrl(provider),
+  );
+}
 
+export async function promptAndSaveNamedKey(
+  envVar: string,
+  label: string,
+  url: string,
+): Promise<boolean> {
   console.log(
-    `\n${label} necesita una API key (${url}).\n` +
+    `\n${label} (${url}).\n` +
       "Pégala aquí. No se ve en pantalla.\n" +
       `La guardo en ${userEnvPath()}\n`,
   );
 
   let value: string;
   try {
-    value = (await readHidden(`${label} API key: `)).trim();
+    value = (await readHidden(`${label}: `)).trim();
   } catch {
     console.log(dim("\n   Cancelado.\n"));
     return false;

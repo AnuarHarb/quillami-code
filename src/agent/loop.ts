@@ -31,6 +31,10 @@ Respond in the user's language.`;
 
 export type History = Anthropic.MessageParam[];
 
+export type TurnResult = {
+  rememberUserCalled: boolean;
+};
+
 export async function runTurn(
   userMessage: string,
   history: History,
@@ -38,18 +42,30 @@ export async function runTurn(
   model: ModelChoice,
   checkpoints: CheckpointStore,
   usage: UsageLedger,
-): Promise<void> {
+  options?: { turnNote?: string },
+): Promise<TurnResult> {
   const client = createClient(model);
 
   history.push({ role: "user", content: userMessage });
   checkpoints.beginTurn();
-  usage.beginTurn();
+  usage.beginTurn({
+    turnNote: options?.turnNote,
+  });
 
+  let rememberUserCalled = false;
   try {
-    await runToolLoop(client, model.id, history, gate, checkpoints, usage);
+    rememberUserCalled = await runToolLoop(
+      client,
+      model.id,
+      history,
+      gate,
+      checkpoints,
+      usage,
+    );
   } finally {
     checkpoints.finishTurn();
   }
+  return { rememberUserCalled };
 }
 
 async function runToolLoop(
@@ -59,14 +75,16 @@ async function runToolLoop(
   gate: PermissionGate,
   checkpoints: CheckpointStore,
   usage: UsageLedger,
-): Promise<void> {
+): Promise<boolean> {
+  let rememberUserCalled = false;
+
   for (let step = 0; step < MAX_ITERATIONS; step += 1) {
     await compactIfNeeded(client, model, history, usage);
     const response = await streamAssistant(client, model, history, usage);
     history.push({ role: "assistant", content: response.content });
 
     if (response.stop_reason !== "tool_use") {
-      return;
+      return rememberUserCalled;
     }
 
     const results: Anthropic.ToolResultBlockParam[] = [];
@@ -77,12 +95,13 @@ async function runToolLoop(
       const preview = summarizeInput(block.input);
       process.stdout.write(`\n· ${block.name}${preview ? ` ${preview}` : ""}\n`);
 
-      const allowed = await gate.authorize(block.name, block.input);
-      if (!allowed) {
+      const decision = await gate.authorize(block.name, block.input);
+      if (!decision.allowed) {
         results.push({
           type: "tool_result",
           tool_use_id: block.id,
           content:
+            decision.toolMessage ??
             "The user denied this action. Do not retry it unless they explicitly ask.",
         });
         continue;
@@ -102,6 +121,10 @@ async function runToolLoop(
         output = `Error: ${error instanceof Error ? error.message : String(error)}`;
       }
 
+      if (block.name === "remember_user") {
+        rememberUserCalled = true;
+      }
+
       results.push({
         type: "tool_result",
         tool_use_id: block.id,
@@ -113,6 +136,7 @@ async function runToolLoop(
   }
 
   console.log("\nStopped: too many tool steps in this turn.");
+  return rememberUserCalled;
 }
 
 async function streamAssistant(
