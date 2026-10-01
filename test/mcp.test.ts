@@ -22,7 +22,7 @@ describe("mcp helpers", () => {
 
   it("filters tool allow lists", () => {
     const all = ["a", "b", "c"];
-    assert.deepEqual(filterMcpTools("srv", all, ["a", "c"]), ["a", "c"]);
-    assert.deepEqual(filterMcpTools("srv", all, undefined), all);
+    assert.deepEqual(filterMcpTools(all, ["a", "c"]), ["a", "c"]);
+    assert.deepEqual(filterMcpTools(all, undefined), all);
   });
 });

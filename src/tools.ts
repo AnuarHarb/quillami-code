@@ -15,7 +15,7 @@ import { rememberUser } from "./userMemory.js";
 const execFileAsync = promisify(execFile);
 
 const IGNORE = new Set(["node_modules", ".git", "dist"]);
-const MAX_FILE_BYTES = 200_000;
+export const MAX_FILE_BYTES = 200_000;
 const MAX_GREP_HITS = 50;
 
 export const BUILTIN_TOOL_DEFINITIONS = [
@@ -160,7 +160,7 @@ function workspaceRoot(): string {
   return process.cwd();
 }
 
-function resolveInWorkspace(relativePath: string): string {
+export function resolveInWorkspace(relativePath: string): string {
   const root = workspaceRoot();
   const absolute = path.resolve(root, relativePath);
   const relative = path.relative(root, absolute);
@@ -238,8 +238,13 @@ async function toolEdit(input: Record<string, unknown>): Promise<string> {
   if (matches > 1) {
     throw new Error(`old_string matched ${matches} times; it must match exactly once`);
   }
-  await writeFile(filePath, content.replace(oldString, newString), "utf8");
+  await writeFile(filePath, applyEdit(content, oldString, newString), "utf8");
   return `edited ${path.relative(workspaceRoot(), filePath)}`;
+}
+
+/** A function replacer keeps `$&`, `$1`, and `$$` in new_string literal. */
+export function applyEdit(content: string, oldString: string, newString: string): string {
+  return content.replace(oldString, () => newString);
 }
 
 async function toolBash(input: Record<string, unknown>): Promise<string> {

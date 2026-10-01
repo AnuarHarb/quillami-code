@@ -7,6 +7,7 @@ import {
   type RiskInput,
   type RiskPolicyResult,
 } from "./decisions.js";
+import { previewChange } from "./diff.js";
 import type { AgentMode } from "./mode.js";
 import { isPlanBlockedTool } from "./toolRegistry.js";
 
@@ -41,7 +42,7 @@ export function createGate(
     nonInteractive?: boolean;
   },
 ): PermissionGate {
-  let allowSession = false;
+  const allowedForSession = new Set<string>();
 
   return {
     async authorize(name, input) {
@@ -93,7 +94,8 @@ export function createGate(
 
       const forceAsk =
         policy && policy.action === "ask" ? policy.forceAsk : false;
-      if (allowSession && !forceAsk && mode !== "yolo") {
+      const sessionKey = approvalKey(name);
+      if (allowedForSession.has(sessionKey) && !forceAsk && mode !== "yolo") {
         return { allowed: true };
       }
 
@@ -109,11 +111,16 @@ export function createGate(
       if (detail) {
         process.stdout.write(`${dim(`  ${detail}`)}\n`);
       }
+      const diff = previewChange(name, input);
+      if (diff) {
+        process.stdout.write(`${diff}\n`);
+      }
 
+      const label = approvalLabel(sessionKey);
       process.stdout.write(
         `${dim("  s  sí, solo esta vez")}\n` +
           `${dim("  n  no, no lo toques")}\n` +
-          `${dim("  a  sí, y no preguntes más en esta sesión")}\n`,
+          `${dim(`  a  sí, y no preguntes más por ${label} en esta sesión`)}\n`,
       );
 
       const decision = await askDecision(ask);
@@ -122,12 +129,27 @@ export function createGate(
         return { allowed: false };
       }
       if (decision === "allow_session" && !forceAsk) {
-        allowSession = true;
-        process.stdout.write(`${dim("  Va, esta sesión no pregunto más.")}\n`);
+        allowedForSession.add(sessionKey);
+        process.stdout.write(`${dim(`  Va, no pregunto más por ${label} en esta sesión.`)}\n`);
       }
       return { allowed: true };
     },
   };
+}
+
+/** MCP tools share one approval per server; every other tool is approved on its own. */
+export function approvalKey(name: string): string {
+  if (name.startsWith("mcp__")) {
+    const rest = name.slice("mcp__".length);
+    const split = rest.indexOf("__");
+    return split === -1 ? name : `mcp__${rest.slice(0, split)}`;
+  }
+  return name;
+}
+
+function approvalLabel(key: string): string {
+  if (key.startsWith("mcp__")) return `MCP ${key.slice("mcp__".length)}`;
+  return key;
 }
 
 export function createAssessRisk(workspace: string): AssessRiskFn {

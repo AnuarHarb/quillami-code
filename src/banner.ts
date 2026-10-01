@@ -18,6 +18,18 @@ export function dim(text: string): string {
   return paint("2;37", text);
 }
 
+export function red(text: string): string {
+  return paint("31", text);
+}
+
+export function green(text: string): string {
+  return paint("32", text);
+}
+
+export function cyan(text: string): string {
+  return paint("36", text);
+}
+
 export function printBanner(): void {
   const phrase = PHRASES[Math.floor(Math.random() * PHRASES.length)];
 

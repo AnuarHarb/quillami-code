@@ -1,5 +1,4 @@
 import { accessSync, constants, mkdirSync } from "node:fs";
-import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { noul } from "@typesafe-ai/sdk";
 import { askJev, jevEnabled } from "./jev.js";
@@ -8,8 +7,7 @@ import { hasKey } from "./auth.js";
 import { defaultModel } from "./models.js";
 import { createClient } from "./providers.js";
 import { connectMcpServers } from "./mcp.js";
-
-const require = createRequire(import.meta.url);
+import { packageVersion } from "./version.js";
 
 export type DoctorLine = { label: string; ok: boolean; detail: string };
 
@@ -53,16 +51,11 @@ export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: numb
     detail: jevEnabled() ? "present (Jev on)" : "optional TYPESAFE_API_KEY",
   });
 
-  try {
-    const pkg = require("../package.json") as { version?: string };
-    lines.push({
-      label: "package",
-      ok: true,
-      detail: `quillami-code@${pkg.version ?? "?"}`,
-    });
-  } catch {
-    lines.push({ label: "package", ok: false, detail: "package.json unreadable" });
-  }
+  lines.push({
+    label: "package",
+    ok: true,
+    detail: `quillami-code@${packageVersion()}`,
+  });
 
   try {
     const which = execFileSync("which", ["quillami"], { encoding: "utf8" }).trim();

@@ -13,7 +13,11 @@ import { formatJevModelPick, jevBannerLine, jevEnabled } from "./jev.js";
 import { createCheckpointStore, type UndoResult } from "./checkpoint.js";
 import { loadEnv } from "./env.js";
 import { listMemoryFiles } from "./memory.js";
-import { connectMcpServers, type McpRuntime } from "./mcp.js";
+import {
+  connectMcpServers,
+  enabledMcpServerNames,
+  type McpRuntime,
+} from "./mcp.js";
 import {
   DEFAULT_MODEL_ID,
   defaultModel,
@@ -347,6 +351,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  const mcpNames = enabledMcpServerNames();
+  if (mcpNames.length > 0) {
+    console.log(dim(`   conectando MCP: ${mcpNames.join(", ")}…`));
+  }
   const mcp = await connectMcpServers((message) => {
     console.log(dim(`   ${message}`));
   });

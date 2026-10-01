@@ -5,6 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { configDir } from "./config.js";
+import { packageVersion } from "./version.js";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const MCP_PREFIX = "mcp__";
@@ -87,12 +88,18 @@ export function parseMcpExposedName(name: string): { server: string; tool: strin
 }
 
 export function filterMcpTools(
-  serverName: string,
   toolNames: string[],
   allowList: string[] | undefined,
 ): string[] {
   if (!allowList || allowList.length === 0) return toolNames;
   return toolNames.filter((tool) => allowList.includes(tool));
+}
+
+export function enabledMcpServerNames(): string[] {
+  const servers = loadMcpConfigFile().servers ?? {};
+  return Object.entries(servers)
+    .filter(([, cfg]) => cfg.enabled !== false)
+    .map(([name]) => name);
 }
 
 export async function connectMcpServers(
@@ -116,7 +123,7 @@ export async function connectMcpServers(
         );
         clients.push(connected.client);
         const toolNames = connected.tools.map((tool) => tool.name);
-        const filtered = filterMcpTools(serverName, toolNames, cfg.tools);
+        const filtered = filterMcpTools(toolNames, cfg.tools);
         for (const tool of connected.tools) {
           if (!filtered.includes(tool.name)) continue;
           const exposedName = mcpExposedName(serverName, tool.name);
@@ -157,7 +164,7 @@ export async function connectMcpServers(
       return `mcp: ${summaries.map((s) => `${s.name} (${s.count})`).join(", ")}`;
     },
     formatList() {
-      if (bindings.length === 0) {
+      if (summaries.length === 0) {
         return "  (sin servidores MCP conectados; configura ~/.quillami/mcp.json)";
       }
       const lines = summaries.map((s) => `  ${s.name}: ${s.count} tools`);
@@ -184,7 +191,7 @@ async function connectOneServer(
   serverName: string,
   cfg: McpServerConfig,
 ): Promise<{ client: Client; tools: { name: string; description?: string; inputSchema?: unknown }[] }> {
-  const client = new Client({ name: "quillami", version: "0.2.0" });
+  const client = new Client({ name: "quillami", version: packageVersion() });
   let transport;
 
   if (cfg.url) {
@@ -205,11 +212,7 @@ async function connectOneServer(
 
   await client.connect(transport);
   const listed = await client.listTools();
-  const tools = listed.tools ?? [];
-  if (tools.length === 0) {
-    throw new Error("no tools reported");
-  }
-  return { client, tools };
+  return { client, tools: listed.tools ?? [] };
 }
 
 function formatToolResult(result: unknown): string {

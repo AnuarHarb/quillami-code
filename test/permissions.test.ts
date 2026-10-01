@@ -21,7 +21,7 @@ describe("permissions", () => {
     assert.equal((await gate.authorize("write", { path: "a.ts", content: "x" })).allowed, true);
     assert.equal((await gate.authorize("edit", { path: "a.ts" })).allowed, false);
     assert.equal((await gate.authorize("bash", { command: "ls" })).allowed, true);
-    assert.equal((await gate.authorize("write", { path: "b.ts", content: "y" })).allowed, true);
+    assert.equal((await gate.authorize("bash", { command: "pwd" })).allowed, true);
     assert.equal(answers.length, 0);
   });
 
@@ -35,7 +35,28 @@ describe("permissions", () => {
 
     const session = createGate(async () => answers.shift() ?? "n");
     assert.equal((await session.authorize("bash", { command: "pwd" })).allowed, true);
-    assert.equal((await session.authorize("write", { path: "b.ts", content: "2" })).allowed, true);
+    assert.equal((await session.authorize("bash", { command: "ls" })).allowed, true);
+  });
+
+  it("a approves only that tool, not every risky tool", async () => {
+    const answers = ["a", "n", "n"];
+    const gate = createGate(async () => answers.shift() ?? "n");
+
+    assert.equal((await gate.authorize("bash", { command: "ls" })).allowed, true);
+    assert.equal((await gate.authorize("bash", { command: "pwd" })).allowed, true);
+    assert.equal((await gate.authorize("write", { path: "a.ts", content: "x" })).allowed, false);
+    assert.equal((await gate.authorize("web_fetch", { url: "https://example.com" })).allowed, false);
+    assert.equal(answers.length, 0);
+  });
+
+  it("a on an MCP tool covers that server only", async () => {
+    const answers = ["a", "n"];
+    const gate = createGate(async () => answers.shift() ?? "n");
+
+    assert.equal((await gate.authorize("mcp__easybits__list_files", {})).allowed, true);
+    assert.equal((await gate.authorize("mcp__easybits__read_file", {})).allowed, true);
+    assert.equal((await gate.authorize("mcp__other__read_file", {})).allowed, false);
+    assert.equal(answers.length, 0);
   });
 
   it("blocks write in plan mode", async () => {

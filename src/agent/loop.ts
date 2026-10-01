@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { type CheckpointStore } from "../checkpoint.js";
+import { cachedMessages, cachedSystem, cachedTools } from "./cache.js";
 import { compactIfNeeded } from "./compact.js";
 import { loadProjectMemory } from "../memory.js";
 import { APP_NAME, CONFIG_DIR_NAME, PROJECT_MEMORY_FILE } from "../config.js";
@@ -44,6 +45,7 @@ export type RunTurnOptions = {
   turnNote?: string;
   mode?: AgentMode;
   registry?: ToolRegistry;
+  client?: Anthropic;
 };
 
 export async function runTurn(
@@ -55,10 +57,12 @@ export async function runTurn(
   usage: UsageLedger,
   options?: RunTurnOptions,
 ): Promise<TurnResult> {
-  const client = createClient(model);
+  const client = options?.client ?? createClient(model);
   const mode = options?.mode ?? "agent";
   const registry = options?.registry ?? defaultToolRegistry();
 
+  // Compaction rewrites history in place, so restore from a copy, not by length.
+  const before = history.slice();
   history.push({ role: "user", content: userMessage });
   checkpoints.beginTurn();
   usage.beginTurn({
@@ -77,6 +81,9 @@ export async function runTurn(
       registry,
       mode,
     );
+  } catch (error) {
+    history.splice(0, history.length, ...before);
+    throw error;
   } finally {
     checkpoints.finishTurn();
   }
@@ -177,9 +184,9 @@ async function streamAssistant(
     const stream = client.messages.stream({
       model,
       max_tokens: 8000,
-      system: buildSystemPrompt(mode),
-      tools: registry.definitions(mode),
-      messages: history,
+      system: cachedSystem(buildSystemPrompt(mode)),
+      tools: cachedTools(registry.definitions(mode)),
+      messages: cachedMessages(history),
     });
 
     let started = false;

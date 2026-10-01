@@ -59,20 +59,18 @@ export function createUsageLedger(options?: {
     turnLine() {
       const note = turnNote ? ` · ${turnNote}` : "";
       return (
-        `  tokens: ${formatTokenCount(turn.input)} in · ${formatTokenCount(turn.output)} out` +
+        `  tokens: ${formatTokenCount(promptTokens(turn))} in${cacheNote(turn)} · ${formatTokenCount(turn.output)} out` +
         note +
-        ` · sesión ${formatTokenCount(session.input + session.output)}` +
+        ` · sesión ${formatTokenCount(promptTokens(session) + session.output)}` +
         ` · ${formatUsd(session.usd)} esta sesión` +
         ` · ${formatUsd(lifetime.usd)} en total`
       );
     },
 
     report() {
-      const lines = [
-        `  turno    ${formatTokenCount(turn.input)} in / ${formatTokenCount(turn.output)} out  ${formatUsd(turn.usd)}`,
-        `  sesión   ${formatTokenCount(session.input)} in / ${formatTokenCount(session.output)} out  ${formatUsd(session.usd)}`,
-        `  total    ${formatTokenCount(lifetime.input)} in / ${formatTokenCount(lifetime.output)} out  ${formatUsd(lifetime.usd)}`,
-      ];
+      const row = (label: string, totals: UsageTotals) =>
+        `  ${label.padEnd(8)} ${formatTokenCount(promptTokens(totals))} in${cacheNote(totals)} / ${formatTokenCount(totals.output)} out  ${formatUsd(totals.usd)}`;
+      const lines = [row("turno", turn), row("sesión", session), row("total", lifetime)];
       const jev = formatJevSessionUsage();
       if (jev) lines.push(jev);
       return lines.join("\n");
@@ -93,13 +91,31 @@ export function readApiUsage(usage: unknown): Omit<UsageTotals, "usd"> {
   };
 }
 
-function costUsd(model: string, usage: Omit<UsageTotals, "usd">): number {
+const CACHE_WRITE_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.1;
+
+export function costUsd(model: string, usage: Omit<UsageTotals, "usd">): number {
   const price = priceForModel(model);
-  const billedInput = usage.input + usage.cacheWrite;
+  const billedInput =
+    usage.input +
+    usage.cacheWrite * CACHE_WRITE_MULTIPLIER +
+    usage.cacheRead * CACHE_READ_MULTIPLIER;
   return (
     (billedInput / 1_000_000) * price.inputPerMillion +
     (usage.output / 1_000_000) * price.outputPerMillion
   );
+}
+
+/** input_tokens excludes cached tokens, so the real prompt size is the sum. */
+function promptTokens(totals: UsageTotals): number {
+  return totals.input + totals.cacheRead + totals.cacheWrite;
+}
+
+function cacheNote(totals: UsageTotals): string {
+  const prompt = promptTokens(totals);
+  if (totals.cacheRead === 0 || prompt === 0) return "";
+  const pct = Math.round((totals.cacheRead / prompt) * 100);
+  return ` (${pct}% de caché)`;
 }
 
 function add(
