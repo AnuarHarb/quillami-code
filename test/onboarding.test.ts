@@ -14,6 +14,7 @@ import {
   type KeyCheck,
   type KeySlot,
 } from "../src/onboarding.ts";
+import type { Choice, SelectOptions, Selector } from "../src/select.ts";
 
 const KEY_VARS = KEY_SLOTS.map((slot) => slot.envVar);
 
@@ -95,6 +96,36 @@ describe("onboarding", () => {
       ["TYPESAFE_API_KEY", "ts-key"],
     ]);
     assert.equal(process.env.OPENROUTER_API_KEY, "sk-or-good");
+  });
+
+  it("offers the keys as a checkbox list with the missing recommended ones checked", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-existing";
+    let shown: Choice<KeySlot>[] = [];
+    let validate: ((values: KeySlot[]) => string | null) | undefined;
+    const select: Selector = {
+      one: async () => null,
+      many: async <T,>(_prompt: string, choices: Choice<T>[], options?: SelectOptions<T>) => {
+        shown = choices as Choice<KeySlot>[];
+        validate = options?.validate as typeof validate;
+        return choices.filter((choice) => choice.checked).map((choice) => choice.value);
+      },
+    };
+    const { io, printed } = scriptedIO([], ["sk-or-good", "ts-key"]);
+    const result = await runOnboarding(
+      { ...io, select },
+      { verify: async () => "ok", save: () => {}, userEnvFile: userFile, projectEnvFile: projectFile },
+    );
+    assert.deepEqual(
+      shown.filter((choice) => choice.checked).map((choice) => choice.value.id),
+      ["openrouter", "typesafe"],
+    );
+    assert.match(shown.find((choice) => choice.value.id === "anthropic")!.label, /✓ lista/);
+    assert.deepEqual(result.added, ["openrouter", "typesafe"]);
+    assert.doesNotMatch(printed.join("\n"), /^ {2}1 {2}OpenRouter/m);
+
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    assert.match(validate!([]) ?? "", /al menos una key de modelo/);
   });
 
   it("does not save a rejected key, and retries when asked", async () => {

@@ -6,6 +6,7 @@ import {
   searchOpenRouterModels,
   type OpenRouterModel,
 } from "../src/openrouter.ts";
+import type { Choice, SelectOptions, Selector } from "../src/select.ts";
 
 function model(id: string, created: number, tools = true): OpenRouterModel {
   return {
@@ -82,6 +83,34 @@ describe("model picker", () => {
     const text = renderEntries(entries);
     assert.ok(text.indexOf("Recomendado") < text.indexOf("Directos"));
     assert.ok(text.indexOf("Directos") < text.indexOf("OpenRouter ·"));
+  });
+
+  it("offers an arrow-key list with sections, the current model highlighted, and live search", async () => {
+    let shown: Choice<string>[] = [];
+    let options: SelectOptions<string> | undefined;
+    const select: Selector = {
+      one: async <T,>(_prompt: string, choices: Choice<T>[], given?: SelectOptions<T>) => {
+        shown = choices as Choice<string>[];
+        options = given as SelectOptions<string>;
+        return choices[given?.initial ?? 0].value;
+      },
+      many: async () => null,
+    };
+    const picked = await pickModel({
+      ...scripted([]),
+      select,
+      catalog: CATALOG,
+      currentId: "~openai/gpt-sol-latest",
+    });
+    assert.equal(picked, "~openai/gpt-sol-latest");
+    assert.deepEqual(
+      shown.map((choice) => choice.section?.split(" ·")[0]),
+      ["Recomendado", "OpenRouter", "OpenRouter"],
+    );
+    assert.deepEqual(
+      options!.search!("coder").map((choice) => choice.value),
+      ["qwen/qwen3-coder-next", "qwen/qwen3-coder-plus", "qwen/qwen3-coder"],
+    );
   });
 
   it("picks by number from the default list", async () => {

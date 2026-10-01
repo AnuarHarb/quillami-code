@@ -11,6 +11,7 @@ import { previewChange } from "./diff.js";
 import { formatDuration } from "./liveOutput.js";
 import { BASH_DEFAULT_TIMEOUT_S, bashTimeoutSeconds } from "./tools.js";
 import type { AgentMode } from "./mode.js";
+import type { Choice, Selector } from "./select.js";
 import { isPlanBlockedTool } from "./toolRegistry.js";
 
 const RISKY_TOOLS = new Set(["write", "edit", "bash", "remember_user", "web_fetch"]);
@@ -42,6 +43,8 @@ export function createGate(
     assessRisk?: AssessRiskFn;
     getMode?: () => AgentMode;
     nonInteractive?: boolean;
+    /** Arrow-key choice in a terminal; without it, the answer is typed. */
+    select?: Selector;
   },
 ): PermissionGate {
   const allowedForSession = new Set<string>();
@@ -119,13 +122,28 @@ export function createGate(
       }
 
       const label = approvalLabel(sessionKey);
-      process.stdout.write(
-        `${dim("  s  sí, solo esta vez")}\n` +
-          `${dim("  n  no, no lo toques")}\n` +
-          `${dim(`  a  sí, y no preguntes más por ${label} en esta sesión`)}\n`,
-      );
-
-      const decision = await askDecision(ask);
+      let decision: Decision;
+      if (options?.select) {
+        const choices: Choice<Decision>[] = [
+          { value: "allow", label: "Sí, solo esta vez", shortcut: "s" },
+          { value: "deny", label: "No, no lo toques", shortcut: "n" },
+        ];
+        if (!forceAsk) {
+          choices.push({
+            value: "allow_session",
+            label: `Sí, y no preguntes más por ${label} en esta sesión`,
+            shortcut: "a",
+          });
+        }
+        decision = (await options.select.one("¿Qué hago?", choices)) ?? "deny";
+      } else {
+        process.stdout.write(
+          `${dim("  s  sí, solo esta vez")}\n` +
+            `${dim("  n  no, no lo toques")}\n` +
+            `${dim(`  a  sí, y no preguntes más por ${label} en esta sesión`)}\n`,
+        );
+        decision = await askDecision(ask);
+      }
       if (decision === "deny") {
         process.stdout.write(`${dim("  Listo, no lo toco.")}\n`);
         return { allowed: false };
@@ -235,7 +253,9 @@ function describeAction(
   return base;
 }
 
-async function askDecision(ask: AskFn): Promise<"allow" | "deny" | "allow_session"> {
+type Decision = "allow" | "deny" | "allow_session";
+
+async function askDecision(ask: AskFn): Promise<Decision> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raw = (await ask("  ¿Qué hago? ")).trim().toLowerCase();
     if (raw === "s" || raw === "si" || raw === "sí" || raw === "y" || raw === "yes") {

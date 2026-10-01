@@ -8,6 +8,7 @@ import { hasKey } from "./auth.js";
 import { defaultModel } from "./models.js";
 import { anyProviderKey, createClient } from "./providers.js";
 import { connectMcpServers } from "./mcp.js";
+import { discoverSkills, skillsBannerLine } from "./skills.js";
 import { packageVersion } from "./version.js";
 
 /** `optional` lines that are not ok show as "--", not "fail". */
@@ -138,6 +139,14 @@ export async function runDoctor(): Promise<{ lines: DoctorLine[]; exitCode: numb
     mcpDetail = error instanceof Error ? error.message : String(error);
   }
   lines.push({ label: "mcp", ok: mcpOk, detail: mcpDetail });
+
+  const skills = discoverSkills();
+  lines.push({
+    label: "skills",
+    ok: skills.length > 0,
+    detail: skillsBannerLine(skills).replace(/^skills: /, ""),
+    optional: true,
+  });
 
   const critical = lines.filter(
     (line) =>

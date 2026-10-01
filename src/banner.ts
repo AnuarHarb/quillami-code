@@ -66,6 +66,10 @@ export function dim(text: string): string {
   return paint("2;37", text);
 }
 
+export function bold(text: string): string {
+  return paint("1", text);
+}
+
 export function red(text: string): string {
   return paint("31", text);
 }

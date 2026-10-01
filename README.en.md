@@ -21,6 +21,7 @@ TypeScript, MIT, no orchestration frameworks. This repo is the agent and a bluep
 - **Prompt caching** on Anthropic and the OpenRouter models that support it
 - **`web_fetch`:** public http/https URLs only; blocks private networks, localhost, redirects to them, and DNS that points inside
 - **MCP:** `~/.quillami/mcp.json` (stdio or HTTP); tools as `mcp__server__tool`
+- **Skills:** folders with a `SKILL.md`, compatible with Claude Code, Cursor, and `.agents/skills`. The model loads the one that fits; you can force one with `/name`
 - **Sessions:** `~/.quillami/sessions/`; `-c`, `--resume`, `quillami sessions`, `/sessions`, `/new`
 - **Modes:** `agent`, `plan` (read-only + plan), `yolo` (auto-approve; denylist and Jev still apply)
 - **One-shot:** `quillami "your task"` — one turn then exit (non-TTY denies risky tools unless `--yolo`)
@@ -57,7 +58,7 @@ quillami
 
 The first time you open Quillami (or whenever it finds no model key), it walks you through setup. **Two keys are recommended:** OpenRouter, for hundreds of models with one account, and Jev (TypeSafe), which automatically picks the best model for each task (`auto` mode). OpenRouter alone also works: you pin a model and switch it anytime with `/model`.
 
-1. Pick the keys you want (recommended: `1 2`, OpenRouter and Jev; `4`, a free Artificial Analysis key, lets `auto` pick by benchmark). You need at least one model key (OpenRouter or Anthropic); the Jev key enables `auto`, smart permissions, and memory.
+1. Pick the keys you want from a checkbox list: arrows to move, Space to check or uncheck, Enter to continue. The recommended ones you are missing (OpenRouter and Jev) come pre-checked; a free Artificial Analysis key lets `auto` pick by benchmark. You need at least one model key (OpenRouter or Anthropic); the Jev key enables `auto`, smart permissions, and memory.
 2. Paste each key; it is not shown on screen. Anthropic, OpenRouter, and Artificial Analysis keys are verified before saving: if the provider rejects one, it is not saved and you can try another.
 3. Pick the model to start with: `auto` (recommended if you added the Jev key) or a fixed one (see [Picking a model](#picking-a-model)). It becomes your default.
 
@@ -71,7 +72,7 @@ Develop in this repo: `npm install`, `npm start`, `npm run build`.
 
 Type at the `>` prompt. `/exit` or Ctrl+D quits.
 
-Sensitive tools ask **s / n / a** (once, no, always this session). `a` covers only that tool: approving `bash` does not approve `write`. For MCP it covers the whole server (`mcp__easybits__*`), not other servers.
+Sensitive tools ask with a three-choice list: yes once, no, or yes for the rest of the session. Pick with the arrows and Enter, or press `s`, `n`, or `a` directly; Esc means no. The session choice covers only that tool: approving `bash` does not approve `write`. For MCP it covers the whole server (`mcp__easybits__*`), not other servers.
 
 Before you approve a `write` or `edit`, you see the diff against the file on disk (red out, green in, up to 60 lines). If an `edit` would fail because its text is missing or appears more than once, the prompt says so. For `bash`, a non-default timeout is shown in the prompt.
 
@@ -98,10 +99,11 @@ The cancelled turn stays in history with a note, because files it already touche
 | `glob`, `ls` | No permission needed |
 | `web_fetch` | Permission. Checks every redirect and the IP it actually connects to. Text, up to 20k characters |
 | `remember_user` | Permission. Writes under `~/.quillami` |
+| `skill` | No permission. Loads a [skill](#skills) or one of its supporting files; only present when there are skills |
 
 Every tool result is cut to 30k characters before it reaches the model, keeping the start and end.
 
-Slash commands: `/model`, `/models <text>`, `/setup`, `/mode`, `/login`, `/login typesafe`, `/memory`, `/projects`, `/sessions`, `/new`, `/mcp`, `/usage`, `/undo`.
+Slash commands: `/model`, `/models <text>`, `/setup`, `/mode`, `/login`, `/login typesafe`, `/memory`, `/projects`, `/sessions`, `/new`, `/mcp`, `/skills`, `/usage`, `/undo`, and `/skill-name`.
 
 ```bash
 quillami "fix the test"       # one shot
@@ -153,6 +155,29 @@ Example `~/.quillami/mcp.json` ( `${VAR}` expanded from env):
 ```
 
 Use `command`/`args` for stdio servers; `enabled: false` and `tools: [...]` to filter. See `/mcp` or `quillami mcp` after connect.
+
+## Skills
+
+A skill is a folder with a `SKILL.md`: a header with `name` and `description`, the instructions below it, and optional supporting files (`references/`, `scripts/`). It is the same format Claude Code and Cursor use, so the skills you already have work without copying them.
+
+```markdown
+---
+name: deploy
+description: Ships the project to production. Use when asked to deploy or release.
+---
+# Steps
+1. Run the tests…
+```
+
+At startup Quillami looks in the project first and then in your home, in this order: `.quillami/skills` (its own), `.claude/skills`, `.agents/skills`, `.cursor/skills`. When two skills share a name the first one wins, so a project skill overrides a global one. Symlinked skills count once.
+
+- **On their own.** The model sees only each skill's name and description (about 80 tokens per skill, cached). When your request matches one, it loads it with the `skill` tool and follows it; the screen shows `· skill name`. Supporting files are read the same way, only when needed.
+- **By hand.** `/name what you want` (e.g. `/animate make the modal ease in`) hands the whole skill to the model with your request. It works one-shot too: `quillami "/deploy to staging"`.
+- **`/skills`** lists what was found and where. The banner shows the count.
+
+Skills with `disable-model-invocation: true` are hidden from the model and only run with `/name`.
+
+Loading a skill needs no approval: it is read-only, and the tool cannot read outside the skill's folder. If a skill tells the model to run a script, that goes through `bash` and asks for permission as usual. A project skill is text the model follows, just like `AGENTS.md`, so review the ones in repos you do not know.
 
 ## Jev decisions
 
@@ -224,12 +249,15 @@ OpenRouter offers [Jev Router](https://openrouter.ai/typesafe/jev-router) (`/mod
 
 ### Picking a model
 
-Type **`/model`** to get a numbered list: `auto` first, then Claude direct models (only with an Anthropic key; otherwise Claude is already in the OpenRouter section), then OpenRouter's featured models. The featured list is OpenRouter's `~…-latest` aliases, which always point at the newest model of each family, so it never goes stale.
+Type **`/model`** to get a list you move through with the arrows: `auto` first, then Claude direct models (only with an Anthropic key; otherwise Claude is already in the OpenRouter section), then OpenRouter's featured models. The featured list is OpenRouter's `~…-latest` aliases, which always point at the newest model of each family, so it never goes stale.
 
-- **A number** picks from the list.
-- **Free text** (e.g. `qwen coder`, `kimi`, `gemini flash`) searches the whole OpenRouter catalog, newest first, and shows a new numbered list.
-- **An alias or id** (`haiku`, `qwen/qwen3-coder`) is used directly.
+- **Arrows and Enter** pick from the list. The cursor starts on the current model.
+- **Typing** (e.g. `qwen coder`, `kimi`, `gemini flash`) filters the whole OpenRouter catalog live, newest first. Clearing the text brings the first list back.
+- **Esc** leaves without changing anything.
+- **`/model <alias or id>`** (`/model haiku`, `/model qwen/qwen3-coder`) uses it directly, no list.
 - **`/models <text>`** opens the list already filtered.
+
+When output is not a terminal (a script, for example), you get the old typed prompt instead: a number, an alias, or text to search.
 
 If the model needs a key you do not have yet, Quillami asks for it right there. At the end it asks whether to make it your default (`QUILLAMI_MODEL` in `~/.quillami/.env`).
 
@@ -250,7 +278,7 @@ Default: `--model` → `QUILLAMI_MODEL` → legacy `KILLAMI_MODEL` → `ANTHROPI
 
 One key ([openrouter.ai/keys](https://openrouter.ai/keys)) reaches hundreds of models: Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, GLM, and more. Quillami talks to OpenRouter's Anthropic-compatible endpoint, so tools, streaming, and caching work the same way.
 
-- **Key:** option 1 in `quillami setup` (or on first run), `/login openrouter`, or `OPENROUTER_API_KEY` in `~/.quillami/.env`
+- **Key:** check it in `quillami setup` (or on first run), `/login openrouter`, or `OPENROUTER_API_KEY` in `~/.quillami/.env`
 - **Pick a model:** `/model` (list and search) or any id with a slash, e.g. `/model qwen/qwen3-coder-next` or `quillami -m qwen/qwen3-coder`. Ids starting with `~` (such as `~openai/gpt-sol-latest`) always point to the newest version
 - **Search without a session:** `quillami models` shows the featured models; `quillami models qwen coder` searches. Price per million tokens and context size. Only models that accept tools are listed
 - **Validation:** before using an id, Quillami looks it up in the catalog. If it does not exist, it suggests close matches without spending a request; if it exists but has no tool support, it warns

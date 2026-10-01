@@ -43,6 +43,7 @@ import {
 import { pickModel } from "./modelPicker.js";
 import { formatModeLabel, promptPrefix, type AgentMode } from "./mode.js";
 import { createTurnInterrupter, type TurnInterrupter } from "./interrupt.js";
+import { confirm, interactiveTerminal, type Selector, terminalSelector } from "./select.js";
 import {
   KEY_SLOTS,
   markOnboardingDone,
@@ -68,6 +69,7 @@ import {
   type SessionFile,
 } from "./sessions.js";
 import { createToolRegistry, type ToolRegistry } from "./toolRegistry.js";
+import { discoverSkills, expandSkillCommand, formatSkillsList, type Skill, skillsBannerLine } from "./skills.js";
 import { estimateTokens } from "./tokens.js";
 import { createUsageLedger } from "./usage.js";
 import {
@@ -100,6 +102,17 @@ function startupIO(): OnboardingIO {
     },
     secret: (prompt) => readHidden(prompt).catch(() => null),
     print: (text) => console.log(text),
+    select: interactiveTerminal() ? terminalSelector : undefined,
+  };
+}
+
+/** Ctrl+C inside a list behaves like Ctrl+C anywhere else in a turn. */
+function turnSelector(interrupter: TurnInterrupter): Selector | undefined {
+  if (!interactiveTerminal()) return undefined;
+  const onInterrupt = () => interrupter.interrupt();
+  return {
+    one: (prompt, choices, options) => terminalSelector.one(prompt, choices, { ...options, onInterrupt }),
+    many: (prompt, choices, options) => terminalSelector.many(prompt, choices, { ...options, onInterrupt }),
   };
 }
 
@@ -117,6 +130,7 @@ function replIO(rl: Interface): OnboardingIO {
       }
     },
     print: (text) => console.log(text),
+    select: interactiveTerminal() ? terminalSelector : undefined,
   };
 }
 
@@ -135,6 +149,7 @@ async function chooseModel(options: {
   const picked = await pickModel({
     ask: options.io.ask,
     print: options.io.print,
+    select: options.io.select,
     currentId: options.current?.id,
     catalog,
     query: options.query,
@@ -153,7 +168,7 @@ async function chooseModel(options: {
 
   const saveIt =
     options.saveDefault === "always" ||
-    /^s/i.test((await options.io.ask("¿Lo dejo por defecto para las próximas sesiones? (s/N): ")).trim());
+    (await confirm("¿Lo dejo por defecto para las próximas sesiones?", options.io));
   if (saveIt) {
     saveUserKey("QUILLAMI_MODEL", checked.model.alias);
     process.env.QUILLAMI_MODEL = checked.model.alias;
@@ -181,8 +196,8 @@ async function runSetup(
     io.print(
       dim(
         process.env.TYPESAFE_API_KEY?.trim()
-          ? "   Recomendado: 1 (auto): Jev elige el mejor modelo para cada tarea."
-          : "   auto (1) necesita tu key de Jev; sin ella, elige un modelo fijo.",
+          ? "   Recomendado: auto, Jev elige el mejor modelo para cada tarea."
+          : "   auto necesita tu key de Jev; sin ella, elige un modelo fijo.",
       ),
     );
   }
@@ -265,6 +280,7 @@ type SlashContext = {
   sessionId: string | null;
   history: History;
   mcp: McpRuntime;
+  skills: Skill[];
 };
 
 async function handleSlash(
@@ -319,6 +335,11 @@ async function handleSlash(
 
   if (command === "/mcp") {
     console.log(`\n${ctx.mcp.formatList()}\n`);
+    return { model, mode, sessionId, handled: true };
+  }
+
+  if (command === "/skills") {
+    console.log(`\n${formatSkillsList(ctx.skills)}\n`);
     return { model, mode, sessionId, handled: true };
   }
 
@@ -462,6 +483,8 @@ function estimateContextTokens(history: History): number {
 
 async function runUserTurn(options: {
   input: string;
+  /** What the model gets when it differs from what the user typed (a /skill puts the skill in front). */
+  modelInput?: string;
   history: History;
   model: ModelChoice;
   mode: AgentMode;
@@ -470,6 +493,7 @@ async function runUserTurn(options: {
   usage: ReturnType<typeof createUsageLedger>;
   registry: ToolRegistry;
   ask: (prompt: string) => Promise<string>;
+  select?: Selector;
   signal?: AbortSignal;
   /** Last auto pick of this session, so the next one can keep its prompt cache. */
   autoState?: AutoState;
@@ -498,7 +522,7 @@ async function runUserTurn(options: {
   }
 
   const turn = await runTurn(
-    options.input,
+    options.modelInput ?? options.input,
     options.history,
     options.gate,
     turnModel,
@@ -521,6 +545,7 @@ async function runUserTurn(options: {
       turn.rememberUserCalled,
       turnModel,
       options.ask,
+      options.select,
     );
   }
   console.log(dim(options.usage.turnLine()));
@@ -561,7 +586,7 @@ function questionInTurn(
   };
 }
 
-function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime): void {
+function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime, skills: Skill[]): void {
   printBanner();
   console.log(dim(`   workspace: ${process.cwd()}`));
   const memoryFiles = listMemoryFiles();
@@ -587,6 +612,7 @@ function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime
   console.log(dim(`   modo: ${formatModeLabel(mode)}`));
   console.log(dim(`   ${jevBannerLine()}`));
   console.log(dim(`   ${mcp.bannerLine()}`));
+  console.log(dim(`   ${skillsBannerLine(skills)}`));
   console.log(dim(`   memoria global: soul, user, behaviors (~/${CONFIG_DIR_NAME})`));
   console.log(
     dim(
@@ -595,7 +621,7 @@ function printStartupBanner(model: ModelChoice, mode: AgentMode, mcp: McpRuntime
   );
   console.log(
     dim(
-      "   /model elige modelo (OpenRouter incluido) · /setup keys · /memory /sessions /new /mcp /mode · /undo · /usage · /exit",
+      "   /model elige modelo (OpenRouter incluido) · /setup keys · /memory /sessions /new /mcp /skills /mode · /undo · /usage · /exit",
     ),
   );
   console.log("");
@@ -653,7 +679,8 @@ async function main(): Promise<void> {
   const mcp = await connectMcpServers((message) => {
     console.log(dim(`   ${message}`));
   });
-  const registry = createToolRegistry({ mcpTools: mcp.tools });
+  const skills = discoverSkills();
+  const registry = createToolRegistry({ mcpTools: mcp.tools, skills });
 
   try {
     if (cli.command === "mcp") {
@@ -693,15 +720,16 @@ async function main(): Promise<void> {
     const nonInteractive = !stdin.isTTY;
     let currentMode = mode;
 
-    const makeGate = (ask: (prompt: string) => Promise<string>) =>
+    const makeGate = (ask: (prompt: string) => Promise<string>, select: Selector | undefined) =>
       createGate(ask, {
         assessRisk: jevEnabled() ? createAssessRisk(process.cwd()) : undefined,
         getMode: () => currentMode,
         nonInteractive,
+        select,
       });
 
     if (cli.prompt) {
-      printStartupBanner(model, currentMode, mcp);
+      printStartupBanner(model, currentMode, mcp, skills);
       const rlOne = stdin.isTTY
         ? createInterface({ input: stdin, output: stdout })
         : null;
@@ -709,13 +737,15 @@ async function main(): Promise<void> {
       const ask = rlOne
         ? questionInTurn(rlOne, interrupter)
         : async () => "n";
-      const gate = makeGate(ask);
+      const select = rlOne ? turnSelector(interrupter) : undefined;
+      const gate = makeGate(ask, select);
       const checkpoints = createCheckpointStore();
       const usage = createUsageLedger();
       try {
         const result = await interrupter.run((signal) =>
           runUserTurn({
             input: cli.prompt as string,
+            modelInput: expandSkillCommand(cli.prompt as string, skills) ?? undefined,
             history,
             model,
             mode: currentMode,
@@ -724,6 +754,7 @@ async function main(): Promise<void> {
             usage,
             registry,
             ask,
+            select,
             signal,
           }),
         );
@@ -741,7 +772,7 @@ async function main(): Promise<void> {
     if (isAutoModel(model) && benchmarksEnabled() && jevEnabled()) {
       void Promise.all([loadOpenRouterCatalog(), loadBenchmarks()]);
     }
-    printStartupBanner(model, currentMode, mcp);
+    printStartupBanner(model, currentMode, mcp, skills);
     if (history.length > 0) {
       console.log(dim(`   sesión: ${sessionId} (${history.length} mensajes cargados)\n`));
     }
@@ -749,9 +780,10 @@ async function main(): Promise<void> {
     const rl = createInterface({ input: stdin, output: stdout });
     const interrupter = createTurnInterrupter({ rl });
     const ask = questionInTurn(rl, interrupter);
+    const select = turnSelector(interrupter);
     const checkpoints = createCheckpointStore();
     const usage = createUsageLedger();
-    const gate = makeGate(ask);
+    const gate = makeGate(ask, select);
     const autoState: AutoState = { last: null };
 
     try {
@@ -778,7 +810,7 @@ async function main(): Promise<void> {
 
         const slash = await handleSlash(
           input,
-          { model, mode: currentMode, sessionId, history, mcp },
+          { model, mode: currentMode, sessionId, history, mcp, skills },
           rl,
         );
         model = slash.model;
@@ -790,6 +822,7 @@ async function main(): Promise<void> {
           await interrupter.run((signal) =>
             runUserTurn({
               input,
+              modelInput: expandSkillCommand(input, skills) ?? undefined,
               history,
               model,
               mode: currentMode,
@@ -798,6 +831,7 @@ async function main(): Promise<void> {
               usage,
               registry,
               ask,
+              select,
               signal,
               autoState,
             }),

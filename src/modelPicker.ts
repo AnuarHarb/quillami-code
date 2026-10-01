@@ -7,6 +7,7 @@ import {
   type OpenRouterModel,
 } from "./openrouter.js";
 import { hasKey, providerLabel } from "./providers.js";
+import type { Choice, Selector } from "./select.js";
 
 export type PickerEntry = { id: string; line: string; section: "auto" | "direct" | "openrouter" };
 
@@ -17,20 +18,34 @@ type PickerOptions = {
   catalog: OpenRouterModel[] | null;
   /** Start on search results instead of the default list. */
   query?: string;
+  /** Arrow-key list in a terminal; without it, the choice is typed. */
+  select?: Selector;
 };
 
 const MAX_ROUNDS = 10;
 const SEARCH_LIMIT = 20;
 
 /**
- * Numbered list of direct models plus OpenRouter's featured aliases. A number,
- * alias or id picks; anything else searches the catalog. Returns the id to
- * resolve, or null when the user leaves with Enter.
+ * Direct models plus OpenRouter's featured aliases; typing searches the whole
+ * catalog. Returns the id to resolve, or null when the user leaves.
  */
 export async function pickModel(options: PickerOptions): Promise<string | null> {
   let entries = options.query
     ? searchEntries(options.catalog, options.query)
     : defaultEntries(options.catalog, options.currentId);
+
+  if (options.select) {
+    const current = entries.findIndex((entry) => entry.line.endsWith("← actual"));
+    return options.select.one("¿Qué modelo usas?", entryChoices(entries, options.query), {
+      initial: Math.max(current, 0),
+      search: options.catalog
+        ? (query) => entryChoices(searchEntries(options.catalog, query), query)
+        : undefined,
+      emptyText: "nada con tools que coincida; prueba otra palabra",
+      summary: ([id]) => id,
+    });
+  }
+
   options.print(renderEntries(entries, options.query));
 
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
@@ -108,23 +123,35 @@ function keyNote(model: ModelChoice): string {
   return "";
 }
 
+const SECTION_HEADERS: Record<PickerEntry["section"], string> = {
+  auto: "Recomendado",
+  direct: "Directos",
+  openrouter: "OpenRouter · siempre la versión más nueva de cada familia (precio USD por M de tokens)",
+};
+
+function searchHeader(query: string): string {
+  return `OpenRouter · "${query}" · lo más nuevo primero (precio USD por M de tokens)`;
+}
+
+function entryChoices(entries: PickerEntry[], query?: string): Choice<string>[] {
+  return entries.map((entry) => ({
+    value: entry.id,
+    label: entry.line,
+    section: query ? searchHeader(query) : SECTION_HEADERS[entry.section],
+  }));
+}
+
 export function renderEntries(entries: PickerEntry[], query?: string): string {
   if (entries.length === 0) return "\n  (nada que mostrar)\n";
   if (query) {
-    const header = dim(`  OpenRouter · "${query}" · lo más nuevo primero (precio USD por M de tokens)`);
-    return `\n${header}\n${numbered(entries).join("\n")}\n`;
+    return `\n${dim(`  ${searchHeader(query)}`)}\n${numbered(entries).join("\n")}\n`;
   }
-  const headers: Record<PickerEntry["section"], string> = {
-    auto: "  Recomendado",
-    direct: "  Directos",
-    openrouter: "  OpenRouter · siempre la versión más nueva de cada familia (precio USD por M de tokens)",
-  };
   const lines: string[] = [];
   numbered(entries).forEach((line, index) => {
     const section = entries[index].section;
     if (index === 0 || entries[index - 1].section !== section) {
       if (index > 0) lines.push("");
-      lines.push(dim(headers[section]));
+      lines.push(dim(`  ${SECTION_HEADERS[section]}`));
     }
     lines.push(line);
   });

@@ -7,6 +7,7 @@ import { configDir, displayPath } from "./config.js";
 import { envFileKeys, projectEnvPath, userEnvPath } from "./env.js";
 import { OPENROUTER_BASE_URL } from "./openrouter.js";
 import { anyProviderKey } from "./providers.js";
+import { type Choice, confirm, type Selector } from "./select.js";
 
 export type KeySlotId = "anthropic" | "openrouter" | "typesafe" | "artificialanalysis";
 
@@ -56,6 +57,7 @@ export const KEY_SLOTS: KeySlot[] = [
 ];
 
 const RECOMMENDED = "1 2";
+const RECOMMENDED_SLOTS: KeySlotId[] = ["openrouter", "typesafe"];
 
 const INTRO = [
   "",
@@ -72,6 +74,8 @@ export type OnboardingIO = {
   /** Hidden input; null when cancelled. */
   secret: (prompt: string) => Promise<string | null>;
   print: (text: string) => void;
+  /** Checkbox lists in a terminal; without it, choices are typed. */
+  select?: Selector;
 };
 
 export type OnboardingDeps = {
@@ -118,9 +122,38 @@ export async function runOnboarding(
   await offerProjectKeyCopy(io, save, userFile, projectFile);
 
   const added: KeySlotId[] = [];
-  io.print(renderKeyStatus(userFile, projectFile));
+  const selection = io.select
+    ? ((await io.select.many("¿Cuáles agregas o cambias?", keyChoices(userFile, projectFile), {
+        validate: (picked) =>
+          picked.length === 0 && !anyProviderKey()
+            ? "necesitas al menos una key de modelo para empezar; la recomendada es OpenRouter."
+            : null,
+      })) ?? [])
+    : await typedSelection(io, userFile, projectFile);
 
-  let selection: KeySlot[] = [];
+  for (const slot of selection) {
+    if (await addKey(io, slot, verify, save)) added.push(slot.id);
+  }
+
+  return { added, hasModelKey: anyProviderKey() };
+}
+
+/** Recommended keys that are still missing come pre-checked. */
+function keyChoices(userFile: string, projectFile: string): Choice<KeySlot>[] {
+  const width = Math.max(...KEY_SLOTS.map((slot) => slot.label.length));
+  return KEY_SLOTS.map((slot) => {
+    const status = keyStatus(slot, userFile, projectFile);
+    return {
+      value: slot,
+      label: `${slot.label.padEnd(width)}  ${status.padEnd(11)}`,
+      hint: slot.hint,
+      checked: status === "falta" && RECOMMENDED_SLOTS.includes(slot.id),
+    };
+  });
+}
+
+async function typedSelection(io: OnboardingIO, userFile: string, projectFile: string): Promise<KeySlot[]> {
+  io.print(renderKeyStatus(userFile, projectFile));
   for (let attempt = 0; attempt < MAX_SELECTION_TRIES; attempt += 1) {
     const answer = await io.ask(
       `¿Cuáles agregas o cambias? Números separados por espacio (recomendado: ${RECOMMENDED}), Enter para seguir: `,
@@ -136,15 +169,9 @@ export async function runOnboarding(
       );
       continue;
     }
-    selection = parsed;
-    break;
+    return parsed;
   }
-
-  for (const slot of selection) {
-    if (await addKey(io, slot, verify, save)) added.push(slot.id);
-  }
-
-  return { added, hasModelKey: anyProviderKey() };
+  return [];
 }
 
 async function addKey(
@@ -164,8 +191,7 @@ async function addKey(
     const check = await verify(slot, value);
     if (check === "invalid") {
       io.print(dim(`   ✗ ${slot.label} rechazó esa key.`));
-      const retry = await io.ask("¿Pruebas con otra? (s/N): ");
-      if (!/^s/i.test(retry.trim())) return false;
+      if (!(await confirm("¿Pruebas con otra?", io))) return false;
       continue;
     }
     save(slot.envVar, value);
@@ -196,8 +222,7 @@ async function offerProjectKeyCopy(
   io.print(
     `Estas keys están en ${displayPath(projectFile)} y solo sirven en esta carpeta: ${projectOnly.map((slot) => slot.label).join(", ")}.`,
   );
-  const answer = await io.ask(`¿Las copio a ${displayPath(userFile)} para usarlas en cualquier proyecto? (s/N): `);
-  if (!/^s/i.test(answer.trim())) {
+  if (!(await confirm(`¿Las copio a ${displayPath(userFile)} para usarlas en cualquier proyecto?`, io))) {
     io.print("");
     return;
   }
@@ -212,15 +237,21 @@ export function renderKeyStatus(userFile: string, projectFile: string): string {
   const inProject = envFileKeys(projectFile);
   const width = Math.max(...KEY_SLOTS.map((slot) => slot.label.length));
   const lines = KEY_SLOTS.map((slot, index) => {
-    const set = Boolean(process.env[slot.envVar]?.trim());
-    const status = !set
-      ? "falta"
-      : inUser.has(slot.envVar) || !inProject.has(slot.envVar)
-        ? "✓ lista"
-        : "✓ solo aquí";
+    const status = keyStatus(slot, userFile, projectFile, inUser, inProject);
     return `  ${index + 1}  ${slot.label.padEnd(width)}  ${status.padEnd(11)}  ${dim(slot.hint)}`;
   });
   return `${lines.join("\n")}\n`;
+}
+
+function keyStatus(
+  slot: KeySlot,
+  userFile: string,
+  projectFile: string,
+  inUser = envFileKeys(userFile),
+  inProject = envFileKeys(projectFile),
+): "falta" | "✓ lista" | "✓ solo aquí" {
+  if (!process.env[slot.envVar]?.trim()) return "falta";
+  return inUser.has(slot.envVar) || !inProject.has(slot.envVar) ? "✓ lista" : "✓ solo aquí";
 }
 
 /** null when the answer has something other than valid slot numbers. */

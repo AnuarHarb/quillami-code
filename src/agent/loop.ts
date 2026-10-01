@@ -9,6 +9,7 @@ import { type ModelChoice } from "../models.js";
 import type { AgentMode } from "../mode.js";
 import { type PermissionGate } from "../permissions.js";
 import { createClient } from "../providers.js";
+import { formatSkillIndex, type Skill } from "../skills.js";
 import { startSpinner } from "../spinner.js";
 import { defaultToolRegistry, type ToolRegistry } from "../toolRegistry.js";
 import { dim } from "../banner.js";
@@ -276,7 +277,7 @@ async function streamAssistant(
       {
         model,
         max_tokens: 8000,
-        system: cachedSystem(buildSystemPrompt(mode)),
+        system: cachedSystem(buildSystemPrompt(mode, registry.skills ?? [])),
         tools: cachedTools(registry.definitions(mode)),
         messages: cachedMessages(history),
       },
@@ -326,13 +327,15 @@ async function streamAssistant(
   }
 }
 
-function buildSystemPrompt(mode: AgentMode): string {
+function buildSystemPrompt(mode: AgentMode, skills: Skill[]): string {
   const globalMem = loadGlobalMemory();
   const projectMem = loadProjectMemory();
   const parts = [SYSTEM_PROMPT];
   if (mode === "plan") {
     parts.push(PLAN_ADDENDUM);
   }
+  const skillIndex = formatSkillIndex(skills);
+  if (skillIndex) parts.push(skillIndex);
 
   if (globalMem.body) {
     parts.push(globalMem.body);
@@ -367,5 +370,6 @@ function summarizeInput(input: unknown): string {
   const record = input as Record<string, unknown>;
   const value =
     record.path ?? record.command ?? record.pattern ?? record.target ?? record.url;
-  return typeof value === "string" ? value : "";
+  if (typeof value === "string") return value;
+  return [record.name, record.file].filter((part) => typeof part === "string").join(" · ");
 }

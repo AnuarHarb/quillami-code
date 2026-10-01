@@ -9,6 +9,7 @@ import { jevEnabled } from "./jev.js";
 import { type ModelChoice } from "./models.js";
 import { createClient } from "./providers.js";
 import { CONFIG_DIR_NAME } from "./config.js";
+import { confirm, type Selector } from "./select.js";
 import { rememberUser, type MemoryTarget } from "./userMemory.js";
 
 export type AskFn = (prompt: string) => Promise<string>;
@@ -18,6 +19,7 @@ export async function maybeProposeAutoMemory(
   rememberUserCalled: boolean,
   model: ModelChoice,
   ask: AskFn,
+  select?: Selector,
 ): Promise<void> {
   if (rememberUserCalled || !jevEnabled()) return;
 
@@ -30,12 +32,9 @@ export async function maybeProposeAutoMemory(
 
   const file =
     proposal.target === "user" ? "user.md" : "behaviors.md";
-  process.stdout.write(
-    `\n${dim(`¿Guardo en ~/${CONFIG_DIR_NAME}/${file}: "${line}"? (s/n)`)}\n`,
-  );
-
-  const raw = (await ask("  ")).trim().toLowerCase();
-  if (raw !== "s" && raw !== "si" && raw !== "sí" && raw !== "y" && raw !== "yes") {
+  process.stdout.write("\n");
+  const save = await confirm(`¿Guardo en ~/${CONFIG_DIR_NAME}/${file}: "${line}"?`, { ask, select });
+  if (!save) {
     process.stdout.write(`${dim("  Ok, no guardo.\n")}\n`);
     return;
   }

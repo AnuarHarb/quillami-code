@@ -21,6 +21,7 @@ TypeScript, MIT, sin frameworks de orquestación. Este repo es el agente y un lu
 - **Prompt caching** en Anthropic y los modelos de OpenRouter que lo soportan
 - **`web_fetch`:** descarga URLs públicas (http/https); bloquea redes privadas, localhost, redirecciones a ellas y DNS que apunte adentro
 - **MCP:** servidores en `~/.quillami/mcp.json` (stdio o HTTP); tools expuestas como `mcp__servidor__tool`
+- **Skills:** carpetas con `SKILL.md`, compatibles con Claude Code, Cursor y `.agents/skills`. El modelo carga la que aplica; tú puedes forzarla con `/nombre`
 - **Sesiones:** historial en `~/.quillami/sessions/`; `-c`, `--resume`, `quillami sessions`, `/sessions`, `/new`
 - **Modos:** `agent` (normal), `plan` (solo lectura + plan), `yolo` (auto-aprueba; denylist y Jev siguen)
 - **One-shot:** `quillami "tu tarea"` — un turno y sale (sin TTY niega tools salvo `--yolo`)
@@ -58,15 +59,15 @@ quillami
 La primera vez que abres Quillami (o cuando no encuentra ninguna key de modelo) te guía. **Lo recomendado son dos keys:** OpenRouter, que te da cientos de modelos con una sola cuenta, y Jev (TypeSafe), que elige automáticamente el mejor modelo para cada tarea (modo `auto`). Con solo OpenRouter también funciona: eliges un modelo fijo y lo cambias cuando quieras con `/model`.
 
 ```text
-  1  OpenRouter           falta        recomendada: cientos de modelos con una sola key
-  2  Jev (TypeSafe)       falta        recomendada: elige el mejor modelo para cada tarea y aprueba solo comandos inofensivos
-  3  Anthropic            falta        opcional: Claude directo, sin pasar por OpenRouter
-  4  Artificial Analysis  falta        opcional, gratis: con OpenRouter y Jev, auto elige según benchmarks
-
-¿Cuáles agregas o cambias? Números separados por espacio (recomendado: 1 2), Enter para seguir:
+? ¿Cuáles agregas o cambias?
+❯ ◼ OpenRouter           falta        recomendada: cientos de modelos con una sola key
+  ◼ Jev (TypeSafe)       falta        recomendada: elige el mejor modelo para cada tarea…
+  ◻ Anthropic            falta        opcional: Claude directo, sin pasar por OpenRouter
+  ◻ Artificial Analysis  falta        opcional, gratis: con OpenRouter y Jev, auto elige…
+  ↑↓ moverse · espacio marcar · enter seguir · esc cancelar
 ```
 
-1. Eliges las keys que quieres. Hace falta al menos una de modelo (OpenRouter o Anthropic); la de Jev activa `auto`, los permisos inteligentes y la memoria.
+1. Eliges las keys que quieres: te mueves con las flechas, marcas o desmarcas con la barra espaciadora y sigues con Enter. Las dos recomendadas que te faltan ya vienen marcadas. Hace falta al menos una de modelo (OpenRouter o Anthropic); la de Jev activa `auto`, los permisos inteligentes y la memoria.
 2. Pegas cada key; no se ve en pantalla. Anthropic, OpenRouter y Artificial Analysis se verifican antes de guardarse: si el proveedor la rechaza, no se guarda y puedes probar otra.
 3. Eliges el modelo con el que arrancas: `auto` (recomendado si pusiste la key de Jev) o uno fijo (ver [Elegir modelo](#elegir-modelo)). Queda por defecto.
 
@@ -89,12 +90,14 @@ Escribes en el prompt. `/exit` o Ctrl+D cierra.
 Permisos para acciones sensibles (`write`, `edit`, `bash`, `web_fetch`, `remember_user`, MCP):
 
 ```text
-  s  sí, solo esta vez
-  n  no, no lo toques
-  a  sí, y no preguntes más por bash en esta sesión
+? ¿Qué hago?
+❯ ◯ Sí, solo esta vez
+  ◯ No, no lo toques
+  ◯ Sí, y no preguntes más por bash en esta sesión
+  ↑↓ moverse · espacio marcar · enter elegir · esc cancelar
 ```
 
-La `a` vale solo para esa herramienta: aprobar `bash` no aprueba `write`. En MCP vale para todo el servidor (`mcp__easybits__*`), no para otros servidores.
+Eliges con las flechas y Enter, o directo con `s`, `n` o `a`. Esc es no. La tercera opción vale solo para esa herramienta: aprobar `bash` no aprueba `write`. En MCP vale para todo el servidor (`mcp__easybits__*`), no para otros servidores.
 
 Antes de aprobar un `write` o `edit` ves el diff contra el archivo en disco (rojo sale, verde entra, hasta 60 líneas). Si un `edit` va a fallar porque el texto no aparece o aparece varias veces, te avisa ahí mismo. En `bash`, si el modelo pide un tiempo máximo distinto al de por defecto, el prompt lo dice.
 
@@ -121,10 +124,11 @@ El turno cancelado queda en el historial con una nota, porque los archivos que a
 | `glob`, `ls` | Sin permiso |
 | `web_fetch` | Con permiso. Valida cada redirección y la IP con la que de verdad conecta. Texto, hasta 20k caracteres |
 | `remember_user` | Con permiso. Escribe en `~/.quillami` |
+| `skill` | Sin permiso. Carga una [skill](#skills) o uno de sus archivos de apoyo; solo existe si hay skills |
 
 Cualquier resultado de tool se recorta a 30k caracteres antes de llegar al modelo, conservando inicio y final.
 
-Comandos útiles: `/model`, `/models <texto>`, `/setup`, `/mode`, `/login`, `/memory`, `/projects`, `/sessions`, `/new`, `/mcp`, `/usage`, `/undo`.
+Comandos útiles: `/model`, `/models <texto>`, `/setup`, `/mode`, `/login`, `/memory`, `/projects`, `/sessions`, `/new`, `/mcp`, `/skills`, `/usage`, `/undo`, y `/nombre-de-skill`.
 
 ```bash
 quillami "explica este archivo"     # un turno y sale
@@ -181,6 +185,40 @@ Configura `~/.quillami/mcp.json`. Las variables `${NOMBRE}` se expanden desde el
 - **`tools`** — array opcional para limitar qué tools se exponen
 
 Al arrancar, Quillami conecta en paralelo (timeout ~10s); fallos se anuncian y se sigue sin ese servidor. Banner: `mcp: easybits (N tools)`. Detalle: `/mcp` o `quillami mcp`.
+
+## Skills
+
+Una skill es una carpeta con un `SKILL.md`: arriba un encabezado con `name` y `description`, abajo las instrucciones, y si quiere archivos de apoyo (`references/`, `scripts/`). Es el mismo formato de Claude Code y Cursor, así que las que ya tengas funcionan sin copiarlas.
+
+```markdown
+---
+name: deploy
+description: Sube el proyecto a producción. Úsala cuando pidan desplegar o publicar.
+---
+# Pasos
+1. Corre los tests…
+```
+
+Quillami las busca al arrancar, primero en el proyecto y después en tu home, en este orden:
+
+| carpeta | |
+|---------|---|
+| `.quillami/skills` | propia |
+| `.claude/skills` | Claude Code |
+| `.agents/skills` | estándar compartido |
+| `.cursor/skills` | Cursor |
+
+Si dos skills se llaman igual, gana la primera: una del proyecto pisa a una global. Los symlinks entre carpetas cuentan una sola vez.
+
+Cómo se usan:
+
+- **Solas.** El modelo ve solo el nombre y la descripción de cada una (unos 80 tokens por skill, cacheados). Cuando tu pedido coincide con una, la carga con la tool `skill` y sigue sus instrucciones. La pantalla muestra `· skill nombre`. Los archivos de apoyo los lee igual, solo si hacen falta.
+- **A mano.** `/nombre lo que quieres` (por ejemplo `/animate haz que el modal entre suave`) le pasa la skill completa al modelo junto con tu pedido. También funciona en una sola línea: `quillami "/deploy a staging"`.
+- **`/skills`** lista las que encontró y de dónde. El banner dice cuántas hay.
+
+Las skills con `disable-model-invocation: true` no se le muestran al modelo: solo corren con `/nombre`.
+
+Cargar una skill no pide permiso, porque es solo lectura, y la tool no puede leer fuera de la carpeta de la skill. Si una skill le dice al modelo que corra un script, eso pasa por `bash` y te pide permiso como siempre. Una skill del proyecto es texto que el modelo obedece, igual que `AGENTS.md`: revisa las de repos que no conoces.
 
 ## Decisiones con Jev
 
@@ -258,28 +296,30 @@ OpenRouter tiene [Jev Router](https://openrouter.ai/typesafe/jev-router) (`/mode
 
 ### Elegir modelo
 
-Escribe **`/model`** y sale una lista numerada:
+Escribe **`/model`** y sale una lista:
 
 ```text
+? ¿Qué modelo usas?
+  buscar: ▏
   Recomendado
-   1  auto  Auto (Jev)  OpenRouter  ← actual
+❯ ◯ auto  Auto (Jev)  OpenRouter  ← actual
 
   OpenRouter · siempre la versión más nueva de cada familia (precio USD por M de tokens)
-   2  ~anthropic/claude-fable-latest      $10.00 / $50.00 por M · 1000k ctx
-  ...
-   6  ~deepseek/deepseek-flash-latest     $0.024 / $0.60 por M · 1049k ctx
-  ...
-  15  ~openai/gpt-sol-latest              $2.00 / $10.00 por M · 1050k ctx
-
-Número, alias o id · texto para buscar · Enter para salir:
+  ◯ ~anthropic/claude-fable-latest      $10.00 / $50.00 por M · 1000k ctx
+  ◯ ~deepseek/deepseek-flash-latest     $0.025 / $0.60 por M · 1049k ctx
+  ◯ ~openai/gpt-sol-latest              $2.00 / $10.00 por M · 1050k ctx
+  ↑↓ moverse · espacio marcar · enter elegir · escribe para buscar · esc salir
 ```
 
 Con key de Anthropic aparece además la sección **Directos** (Sonnet, Opus, Fable, Haiku sin pasar por OpenRouter); sin ella no se muestra, porque Claude ya está en la lista de OpenRouter.
 
-- **Un número** elige de la lista.
-- **Texto** (por ejemplo `qwen coder`, `kimi`, `gemini flash`) busca en todo el catálogo de OpenRouter, del más nuevo al más viejo, y vuelve a mostrar una lista numerada.
-- **Un alias o un id** (`haiku`, `qwen/qwen3-coder`) lo usa directo.
+- **Flechas y Enter** eligen de la lista. El cursor arranca en el modelo actual.
+- **Escribir** (por ejemplo `qwen coder`, `kimi`, `gemini flash`) filtra en vivo todo el catálogo de OpenRouter, del más nuevo al más viejo. Borrar el texto vuelve a la lista inicial.
+- **Esc** sale sin cambiar nada.
+- **`/model <alias o id>`** (`/model haiku`, `/model qwen/qwen3-coder`) lo usa directo, sin lista.
 - **`/models <texto>`** abre la lista ya filtrada.
+
+Si la salida no es una terminal (por ejemplo en un script), en vez de la lista sale la versión de antes: números, alias o texto para buscar.
 
 Los destacados de OpenRouter son sus alias `~…-latest`, que siempre apuntan al modelo más nuevo de cada familia, así que la lista no se queda vieja. Si eliges un modelo sin key, te la pide en ese momento. Al final te pregunta si lo dejas por defecto (`QUILLAMI_MODEL` en `~/.quillami/.env`).
 
@@ -307,7 +347,7 @@ Prioridad del default: `--model` → `QUILLAMI_MODEL` → `KILLAMI_MODEL` (legac
 
 Una sola key ([openrouter.ai/keys](https://openrouter.ai/keys)) da acceso a cientos de modelos: Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, GLM, etc. Quillami usa el endpoint compatible con Anthropic de OpenRouter, así que tools, streaming y caché funcionan igual.
 
-- **Key:** opción 1 en `quillami setup` (o la primera vez), `/login openrouter`, o `OPENROUTER_API_KEY` en `~/.quillami/.env`
+- **Key:** márcala en `quillami setup` (o la primera vez), `/login openrouter`, o `OPENROUTER_API_KEY` en `~/.quillami/.env`
 - **Elegir modelo:** `/model` (lista y buscador) o cualquier id con barra, p. ej. `/model qwen/qwen3-coder-next` o `quillami -m qwen/qwen3-coder`. Los ids con `~` (como `~openai/gpt-sol-latest`) apuntan siempre a la versión más nueva
 - **Buscar sin abrir sesión:** `quillami models` muestra los destacados; `quillami models qwen coder` busca. Precio por millón de tokens y contexto. Solo lista modelos que aceptan tools
 - **Validación:** antes de usar un id, Quillami lo busca en el catálogo. Si no existe, sugiere parecidos y no gasta una llamada; si existe pero no soporta tools, avisa
